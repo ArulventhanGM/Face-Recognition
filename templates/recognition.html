@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block title %}Face Recognition - Face Recognition System{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Real-time Recognition Card -->
+    <div class="card">
+        <div class="card-header">
+            <h1 class="card-title">
+                <i class="fas fa-video"></i>
+                Real-time Face Recognition
+            </h1>
+        </div>
+        
+        <div class="grid grid-2">
+            <div>
+                <div class="camera-container">
+                    <video id="cameraPreview" class="camera-preview" autoplay muted></video>
+                    <div class="camera-overlay" id="cameraOverlay"></div>
+                </div>
+                
+                <div class="d-flex gap-2 mt-3 justify-center">
+                    <button id="startCamera" class="btn btn-success">
+                        <i class="fas fa-play"></i> Start Camera
+                    </button>
+                    <button id="stopCamera" class="btn btn-danger" style="display: none;">
+                        <i class="fas fa-stop"></i> Stop Camera
+                    </button>
+                    <button id="capturePhoto" class="btn btn-primary" disabled>
+                        <i class="fas fa-camera"></i> Capture Photo
+                    </button>
+                    <button id="toggleRecognition" class="btn btn-success">
+                        <i class="fas fa-eye"></i> Start Recognition
+                    </button>
+                </div>
+            </div>
+            
+            <div>
+                <h3>Recognition Results</h3>
+                <div id="realTimeResults" class="recognition-results">
+                    <p class="text-center text-muted">Start recognition to see results</p>
+                </div>
+                
+                <div class="alert alert-info mt-3">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>How to use:</strong>
+                    <ul class="mt-2" style="margin-bottom: 0;">
+                        <li>Click "Start Camera" to activate webcam</li>
+                        <li>Click "Start Recognition" for real-time detection</li>
+                        <li>Recognized students will appear on the right</li>
+                        <li>Click "Mark Attendance" to record presence</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Photo Upload Recognition -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">
+                <i class="fas fa-image"></i>
+                Photo-based Recognition
+            </h2>
+        </div>
+        
+        <form id="photoRecognitionForm" enctype="multipart/form-data">
+            <div class="grid grid-2">
+                <div>
+                    <div class="form-group">
+                        <label for="uploadPhoto" class="form-label">
+                            <i class="fas fa-upload"></i> Upload Photo
+                        </label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="uploadPhoto" name="photo" accept="image/*" required>
+                            <i class="fas fa-upload"></i>
+                            Select photo for recognition
+                        </div>
+                        <small class="form-text">
+                            Upload a photo containing one or more faces to recognize.
+                            Supported formats: JPG, PNG. Max size: 16MB.
+                        </small>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-search"></i> Recognize Faces
+                    </button>
+                </div>
+                
+                <div>
+                    <h4>Recognition Results</h4>
+                    <div id="recognitionResults" class="recognition-results">
+                        <p class="text-center text-muted">Upload a photo to see recognition results</p>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Bulk Attendance -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">
+                <i class="fas fa-users"></i>
+                Bulk Attendance from Group Photo
+            </h2>
+        </div>
+        
+        <div class="grid grid-2">
+            <div>
+                <div class="form-group">
+                    <label for="groupPhoto" class="form-label">
+                        <i class="fas fa-users"></i> Group Photo
+                    </label>
+                    <div class="file-input-wrapper">
+                        <input type="file" id="groupPhoto" name="group_photo" accept="image/*">
+                        <i class="fas fa-users"></i>
+                        Upload group photo for attendance
+                    </div>
+                    <small class="form-text">
+                        Upload a group photo to automatically mark attendance for all recognized students.
+                        This will process all faces in the image and mark attendance for today.
+                    </small>
+                </div>
+                
+                <button type="button" id="bulkMarkBtn" class="btn btn-warning" onclick="bulkMarkAttendance()">
+                    <i class="fas fa-calendar-check"></i> Mark Bulk Attendance
+                </button>
+                
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Note:</strong> This will mark attendance for ALL recognized faces in the photo.
+                    Students who already have attendance marked today will be skipped.
+                </div>
+            </div>
+            
+            <div>
+                <h4>Bulk Processing Results</h4>
+                <div id="bulkResults">
+                    <p class="text-center text-muted">Upload a group photo and click "Mark Bulk Attendance" to see results</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Instructions -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">
+                <i class="fas fa-lightbulb"></i>
+                Usage Instructions
+            </h2>
+        </div>
+        
+        <div class="grid grid-3">
+            <div class="text-center">
+                <i class="fas fa-video" style="font-size: 3rem; color: var(--success-color); margin-bottom: 1rem;"></i>
+                <h4>Real-time Recognition</h4>
+                <ul style="text-align: left;">
+                    <li>Best for individual identification</li>
+                    <li>Real-time feedback</li>
+                    <li>Manual attendance marking</li>
+                    <li>Live confidence scores</li>
+                </ul>
+            </div>
+            
+            <div class="text-center">
+                <i class="fas fa-image" style="font-size: 3rem; color: var(--primary-color); margin-bottom: 1rem;"></i>
+                <h4>Photo Recognition</h4>
+                <ul style="text-align: left;">
+                    <li>Upload any photo</li>
+                    <li>Identify all faces</li>
+                    <li>Review before marking</li>
+                    <li>Single or multiple faces</li>
+                </ul>
+            </div>
+            
+            <div class="text-center">
+                <i class="fas fa-users" style="font-size: 3rem; color: var(--warning-color); margin-bottom: 1rem;"></i>
+                <h4>Bulk Attendance</h4>
+                <ul style="text-align: left;">
+                    <li>Process group photos</li>
+                    <li>Automatic attendance</li>
+                    <li>Multiple students at once</li>
+                    <li>Perfect for classrooms</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Handle photo recognition form
+document.getElementById('photoRecognitionForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const fileInput = document.getElementById('uploadPhoto');
+    
+    if (!fileInput.files[0]) {
+        app.showAlert('Please select a photo first', 'error');
+        return;
+    }
+    
+    try {
+        app.showLoading('photoRecognitionForm');
+        
+        const response = await fetch('/recognize_photo', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            app.displayRecognitionResults(result.data);
+            app.showAlert(`Recognized ${result.data.length} face(s)`, 'success');
+        } else {
+            app.showAlert(result.message || 'Failed to recognize faces', 'error');
+        }
+    } catch (error) {
+        console.error('Error recognizing photo:', error);
+        app.showAlert('Failed to process photo', 'error');
+    } finally {
+        app.hideLoading('photoRecognitionForm');
+    }
+});
+</script>
+{% endblock %}
