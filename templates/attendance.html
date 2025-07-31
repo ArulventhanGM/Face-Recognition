@@ -146,17 +146,22 @@
                             </span>
                         </td>
                         <td>
-                            {% if record.confidence %}
-                                {% set conf_pct = (record.confidence|float * 100)|round %}
-                                <div class="d-flex align-center gap-1">
-                                    <div class="confidence-bar" style="width: 60px;">
+                            {% if record.confidence and record.confidence != 'N/A' and record.confidence != '' %}
+                                {% set conf_float = record.confidence|float %}
+                                {% if conf_float > 0 %}
+                                    {% set conf_pct = (conf_float * 100)|round|int %}
+                                    <div class="d-flex align-center gap-1">
+                                        <div class="confidence-bar" style="width: 60px;">
                                             <div class="confidence-fill confidence-{{ 'success' if conf_pct > 80 else 'warning' if conf_pct > 60 else 'error' }}" 
-                                                 style="width: {{ conf_pct }}%;"></div>
+                                                 data-width="{{ conf_pct }}"></div>
                                         </div>
-                                    <span class="badge badge-{{ 'success' if conf_pct > 80 else 'warning' if conf_pct > 60 else 'error' }}">
-                                        {{ conf_pct }}%
-                                    </span>
-                                </div>
+                                        <span class="badge badge-{{ 'success' if conf_pct > 80 else 'warning' if conf_pct > 60 else 'error' }}">
+                                            {{ conf_pct }}%
+                                        </span>
+                                    </div>
+                                {% else %}
+                                    <span class="badge badge-secondary">N/A</span>
+                                {% endif %}
                             {% else %}
                                 <span class="badge badge-secondary">N/A</span>
                             {% endif %}
@@ -173,9 +178,9 @@
         </div>
         
         <!-- Pagination would go here if needed -->
-        {% if attendance_records|length > 50 %}
+        {% if attendance_records|length >= 50 %}
         <div class="text-center mt-3">
-            <p class="text-muted">Showing first 50 records. Use filters to narrow down results.</p>
+            <p class="text-muted">Showing {{ attendance_records|length }} records. {% if attendance_records|length == 100 %}Use filters to narrow down results.{% endif %}</p>
         </div>
         {% endif %}
         
@@ -219,6 +224,7 @@
                     </thead>
                     <tbody>
                         {% for date, count in attendance_by_date.items() %}
+                        {% if count is not none and count >= 0 %}
                         <tr>
                             <td>{{ date }}</td>
                             <td><span class="badge badge-primary">{{ count }}</span></td>
@@ -226,10 +232,11 @@
                                 {% set max_count = attendance_by_date.values()|max %}
                                 {% set percentage = (count / max_count * 100)|round if max_count > 0 else 0 %}
                                 <div class="progress-bar" style="width: 100px; height: 10px; background: #eee; border-radius: 5px; overflow: hidden;">
-                                    <div style="width: {{ percentage }}%; height: 100%; background: var(--success-color);"></div>
+                                    <div class="progress-fill" data-width="{{ percentage }}"></div>
                                 </div>
                             </td>
                         </tr>
+                        {% endif %}
                         {% endfor %}
                     </tbody>
                 </table>
@@ -258,19 +265,21 @@
                     <tbody>
                         {% set total_dept_attendance = attendance_by_department.values()|sum %}
                         {% for dept, count in attendance_by_department.items() %}
+                        {% if count is not none and count >= 0 and total_dept_attendance > 0 %}
                         <tr>
-                            <td>{{ dept }}</td>
+                            <td>{{ dept if dept else 'Unknown' }}</td>
                             <td><span class="badge badge-primary">{{ count }}</span></td>
                             <td>
                                 {% set percentage = (count / total_dept_attendance * 100)|round %}
                                 <div class="d-flex align-center gap-1">
                                     <div class="progress-bar" style="width: 60px; height: 10px; background: #eee; border-radius: 5px; overflow: hidden;">
-                                        <div style="width: {{ percentage }}%; height: 100%; background: var(--primary-color);"></div>
+                                        <div class="progress-fill-primary" data-width="{{ percentage }}"></div>
                                     </div>
                                     <span>{{ percentage }}%</span>
                                 </div>
                             </td>
                         </tr>
+                        {% endif %}
                         {% endfor %}
                     </tbody>
                 </table>
@@ -280,19 +289,4 @@
     </div>
     {% endif %}
 </div>
-
-<style>
-.ml-2 {
-    margin-left: 0.5rem;
-}
-
-.progress-bar {
-    border-radius: 5px;
-    overflow: hidden;
-}
-
-.confidence-fill.confidence-success { background-color: var(--success-color); }
-.confidence-fill.confidence-warning { background-color: var(--warning-color); }
-.confidence-fill.confidence-error { background-color: var(--error-color); }
-</style>
 {% endblock %}

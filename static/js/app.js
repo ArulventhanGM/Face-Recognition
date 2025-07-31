@@ -330,12 +330,16 @@ class FaceRecognitionApp {
 
     handleFileUpload(event) {
         const file = event.target.files[0];
-        if (!file) return;
+        if (!file) {
+            this.removeImagePreview(event.target);
+            return;
+        }
 
         // Validate file type
         if (!file.type.startsWith('image/')) {
-            this.showAlert('Please select a valid image file', 'error');
+            this.showAlert('Please select a valid image file (PNG, JPG, JPEG, GIF, BMP)', 'error');
             event.target.value = '';
+            this.removeImagePreview(event.target);
             return;
         }
 
@@ -343,11 +347,22 @@ class FaceRecognitionApp {
         if (file.size > 16 * 1024 * 1024) {
             this.showAlert('File size too large. Maximum 16MB allowed.', 'error');
             event.target.value = '';
+            this.removeImagePreview(event.target);
             return;
         }
 
+        // Show success message for valid file
+        this.showAlert(`Image "${file.name}" selected successfully`, 'success', 3000);
+        
         // Show preview if it's an image
         this.showImagePreview(file, event.target);
+    }
+
+    removeImagePreview(input) {
+        const preview = input.parentElement.querySelector('.image-preview');
+        if (preview) {
+            preview.remove();
+        }
     }
 
     showImagePreview(file, input) {
@@ -373,9 +388,65 @@ class FaceRecognitionApp {
         const form = event.target;
         const submitButton = form.querySelector('button[type="submit"]');
         
+        // Validate required fields before submission
+        const requiredFields = form.querySelectorAll('[required]');
+        let hasErrors = false;
+        
+        requiredFields.forEach(field => {
+            if (!field.value.trim()) {
+                this.showFieldError(field, 'This field is required');
+                hasErrors = true;
+            } else {
+                this.clearFieldError(field);
+            }
+        });
+        
+        // Validate email format if email field exists
+        const emailField = form.querySelector('input[type="email"]');
+        if (emailField && emailField.value) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(emailField.value)) {
+                this.showFieldError(emailField, 'Please enter a valid email address');
+                hasErrors = true;
+            }
+        }
+        
+        if (hasErrors) {
+            event.preventDefault();
+            this.showAlert('Please fix the errors in the form before submitting', 'error');
+            return;
+        }
+        
         if (submitButton) {
             this.showLoading(submitButton.id || 'submit');
+            submitButton.disabled = true;
+            
+            // Re-enable button after timeout to prevent permanent disable
+            setTimeout(() => {
+                submitButton.disabled = false;
+                this.hideLoading(submitButton.id || 'submit');
+            }, 30000); // 30 seconds timeout
         }
+    }
+
+    showFieldError(field, message) {
+        this.clearFieldError(field);
+        const errorElement = document.createElement('div');
+        errorElement.className = 'field-error';
+        errorElement.style.color = 'var(--error-color)';
+        errorElement.style.fontSize = '0.875rem';
+        errorElement.style.marginTop = '0.25rem';
+        errorElement.textContent = message;
+        field.parentElement.appendChild(errorElement);
+        field.style.borderColor = 'var(--error-color)';
+    }
+
+    clearFieldError(field) {
+        const existingError = field.parentElement.querySelector('.field-error');
+        if (existingError) {
+            existingError.remove();
+        }
+        field.style.borderColor = '';
     }
 
     confirmDelete(event) {
@@ -387,7 +458,7 @@ class FaceRecognitionApp {
         }
     }
 
-    showAlert(message, type = 'info') {
+    showAlert(message, type = 'info', timeout = 5000) {
         // Remove existing alerts
         const existingAlerts = document.querySelectorAll('.dynamic-alert');
         existingAlerts.forEach(alert => alert.remove());
@@ -408,12 +479,14 @@ class FaceRecognitionApp {
             alert.remove();
         });
         
-        // Auto-hide after 5 seconds
-        setTimeout(() => {
-            if (alert.parentElement) {
-                alert.remove();
-            }
-        }, 5000);
+        // Auto-hide after specified timeout
+        if (timeout > 0) {
+            setTimeout(() => {
+                if (alert.parentElement) {
+                    alert.remove();
+                }
+            }, timeout);
+        }
     }
 
     showLoading(elementId) {

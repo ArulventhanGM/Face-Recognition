@@ -215,43 +215,95 @@ def add_student():
                 'year': request.form.get('year', '').strip()
             }
             
-            # Validate required fields
-            if not all(student_data.values()):
-                flash('All fields are required', 'error')
+            # Enhanced validation with specific error messages
+            if not student_data['student_id']:
+                flash('Student ID is required', 'error')
                 return render_template('add_student.html')
             
-            # Validate student ID and email
+            if not student_data['name']:
+                flash('Student name is required', 'error')
+                return render_template('add_student.html')
+            
+            if not student_data['email']:
+                flash('Email address is required', 'error')
+                return render_template('add_student.html')
+            
+            if not student_data['department']:
+                flash('Department selection is required', 'error')
+                return render_template('add_student.html')
+            
+            if not student_data['year']:
+                flash('Academic year selection is required', 'error')
+                return render_template('add_student.html')
+            
+            # Validate student ID format
             if not validate_student_id(student_data['student_id']):
-                flash('Invalid student ID format', 'error')
+                flash('Invalid student ID format. Use alphanumeric characters (3-20 chars)', 'error')
                 return render_template('add_student.html')
             
+            # Validate email format
             if not validate_email(student_data['email']):
-                flash('Invalid email format', 'error')
+                flash('Invalid email format. Please enter a valid email address', 'error')
+                return render_template('add_student.html')
+            
+            # Check for existing student
+            data_manager = get_data_manager()
+            existing_student = data_manager.get_student(student_data['student_id'])
+            if existing_student:
+                flash(f'Student ID {student_data["student_id"]} already exists', 'error')
                 return render_template('add_student.html')
             
             # Handle face image upload
             face_image_path = None
+            upload_success = True
+            
+            # Check if face image is required (for new students)
             if 'face_image' in request.files:
                 file = request.files['face_image']
                 if file and file.filename:
+                    # Validate file
+                    if not allowed_file(file.filename):
+                        flash('Invalid image format. Supported formats: PNG, JPG, JPEG, GIF, BMP', 'error')
+                        return render_template('add_student.html')
+                    
+                    # Check file size (additional check beyond Flask's MAX_CONTENT_LENGTH)
+                    file.seek(0, os.SEEK_END)
+                    file_size = file.tell()
+                    file.seek(0)
+                    
+                    if file_size > 16 * 1024 * 1024:  # 16MB
+                        flash('Image file too large. Maximum size is 16MB', 'error')
+                        return render_template('add_student.html')
+                    
                     face_image_path = save_uploaded_file(file)
                     if not face_image_path:
-                        flash('Invalid image file', 'error')
-                        return render_template('add_student.html')
+                        flash('Failed to save uploaded image. Please try again', 'error')
+                        upload_success = False
+                else:
+                    # No file uploaded but face_image field exists
+                    flash('Face photo is required for new student registration', 'error')
+                    return render_template('add_student.html')
+            else:
+                # face_image field not in request at all
+                flash('Face photo is required for new student registration', 'error')
+                return render_template('add_student.html')
             
             # Add student to database
-            data_manager = get_data_manager()
-            success = data_manager.add_student(student_data, face_image_path)
-            
-            if success:
-                flash(f'Student {student_data["name"]} added successfully!', 'success')
-                return redirect(url_for('students'))
-            else:
-                flash('Failed to add student. Please check the data.', 'error')
+            if upload_success:
+                success = data_manager.add_student(student_data, face_image_path)
                 
+                if success:
+                    success_msg = f'Student {student_data["name"]} (ID: {student_data["student_id"]}) added successfully!'
+                    if face_image_path:
+                        success_msg += ' Face photo uploaded and processed.'
+                    flash(success_msg, 'success')
+                    return redirect(url_for('students'))
+                else:
+                    flash('Failed to add student to database. Please check the data and try again', 'error')
+            
         except Exception as e:
             logger.error(f"Error adding student: {e}")
-            flash('An error occurred while adding the student', 'error')
+            flash('An unexpected error occurred while adding the student. Please try again', 'error')
     
     return render_template('add_student.html')
 

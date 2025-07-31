@@ -1,1 +1,15 @@
 student_id,name,date,time,status,confidence,method
+STU001,John Doe,2025-07-30,09:30:00,Present,0.85,camera
+STU002,Jane Smith,2025-07-30,09:30:00,Present,0.9,photo
+STU003,Mike Johnson,2025-07-30,09:30:00,Present,0.95,camera
+STU001,John Doe,2025-07-29,09:30:00,Present,0.85,camera
+STU002,Jane Smith,2025-07-29,09:30:00,Present,0.9,photo
+STU003,Mike Johnson,2025-07-29,09:30:00,Present,0.95,camera
+STU001,John Doe,2025-07-28,09:30:00,Present,0.85,camera
+STU002,Jane Smith,2025-07-28,09:30:00,Present,0.9,photo
+STU003,Mike Johnson,2025-07-28,09:30:00,Present,0.95,camera
+STU001,John Doe,2025-07-27,09:30:00,Present,0.85,camera
+STU002,Jane Smith,2025-07-27,09:30:00,Present,0.9,photo
+STU001,John Doe,2025-07-26,09:30:00,Present,0.85,camera
+STU002,Jane Smith,2025-07-26,09:30:00,Present,0.9,photo
+STU005,Test Student With Photo,2025-07-31,22:07:14,Present,0.00,camera
