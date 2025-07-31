@@ -454,6 +454,47 @@ def recognize_photo():
         logger.error(f"Error recognizing photo: {e}")
         return jsonify({'success': False, 'message': 'Failed to process photo'})
 
+@app.route('/process_photo', methods=['POST'])
+@login_required
+def process_photo():
+    """Process captured photo from camera for recognition"""
+    try:
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({'success': False, 'message': 'No image data provided'})
+        
+        image_data = data['image']
+        
+        # Decode base64 image
+        image = decode_base64_image(image_data)
+        if image is None:
+            return jsonify({'success': False, 'message': 'Invalid image data'})
+        
+        # Save temporary image file
+        temp_filename = f"temp_capture_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
+        cv2.imwrite(temp_filepath, image)
+        
+        try:
+            # Use face recognizer to process image
+            face_recognizer = get_face_recognizer()
+            results = face_recognizer.recognize_faces_from_image(temp_filepath)
+            
+            return jsonify({
+                'success': True,
+                'data': results,
+                'message': f'Recognized {len(results)} face(s)'
+            })
+            
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_filepath):
+                os.remove(temp_filepath)
+                
+    except Exception as e:
+        logger.error(f"Error processing camera photo: {e}")
+        return jsonify({'success': False, 'message': 'Failed to process camera photo'})
+
 @app.route('/recognize_realtime', methods=['POST'])
 @login_required
 def recognize_realtime():
@@ -548,14 +589,46 @@ def bulk_attendance():
             
         finally:
             # Clean up uploaded file
-            try:
+            if os.path.exists(filepath):
                 os.remove(filepath)
-            except:
-                pass
                 
     except Exception as e:
-        logger.error(f"Error in bulk attendance: {e}")
+        logger.error(f"Error processing group photo: {e}")
         return jsonify({'success': False, 'message': 'Failed to process group photo'})
+
+@app.route('/student_photo/<student_id>')
+@login_required
+def student_photo(student_id):
+    """Serve student photo"""
+    try:
+        data_manager = get_data_manager()
+        student = data_manager.get_student(student_id)
+        
+        if not student:
+            # Return default avatar
+            return redirect(url_for('static', filename='images/default-avatar.svg'))
+        
+        # Look for student photo in uploads folder
+        upload_folder = app.config['UPLOAD_FOLDER']
+        
+        # Check for common image extensions
+        for ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp']:
+            photo_path = os.path.join(upload_folder, f"{student_id}.{ext}")
+            if os.path.exists(photo_path):
+                return send_file(photo_path)
+        
+        # Look for timestamped files containing student_id
+        for filename in os.listdir(upload_folder):
+            if student_id.lower() in filename.lower() and any(filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']):
+                photo_path = os.path.join(upload_folder, filename)
+                return send_file(photo_path)
+        
+        # Return default avatar if no photo found
+        return redirect(url_for('static', filename='images/default-avatar.svg'))
+        
+    except Exception as e:
+        logger.error(f"Error serving student photo for {student_id}: {e}")
+        return redirect(url_for('static', filename='images/default-avatar.svg'))
 
 @app.route('/attendance')
 @login_required

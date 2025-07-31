@@ -245,14 +245,59 @@ class FaceRecognitionApp {
         container.innerHTML = '';
         
         if (results.length === 0) {
-            container.innerHTML = '<p class="text-center">No faces recognized</p>';
+            container.innerHTML = `
+                <div class="no-matches-container">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>No matches found</strong><br>
+                        The captured face does not match any registered students.
+                    </div>
+                    <div class="text-center mt-3">
+                        <button class="btn btn-primary" onclick="app.showAddNewUserDialog()">
+                            <i class="fas fa-user-plus"></i> Add New Student
+                        </button>
+                    </div>
+                </div>
+            `;
             return;
         }
 
-        results.forEach(result => {
-            const resultItem = this.createResultItem(result);
+        // Create results header
+        const header = document.createElement('div');
+        header.className = 'results-header';
+        header.innerHTML = `
+            <h4><i class="fas fa-search"></i> Recognition Results</h4>
+            <p class="text-muted">Found ${results.length} match(es) for the captured face:</p>
+        `;
+        container.appendChild(header);
+
+        // Sort results by confidence (highest first)
+        results.sort((a, b) => b.confidence - a.confidence);
+
+        results.forEach((result, index) => {
+            const resultItem = this.createEnhancedResultItem(result, index === 0);
             container.appendChild(resultItem);
         });
+
+        // Add "Add New Student" option if confidence is low
+        const bestMatch = results[0];
+        if (bestMatch && bestMatch.confidence < 0.8) {
+            const addNewContainer = document.createElement('div');
+            addNewContainer.className = 'add-new-container mt-3';
+            addNewContainer.innerHTML = `
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Low confidence match</strong><br>
+                    If this person is not ${bestMatch.name}, you can register them as a new student.
+                </div>
+                <div class="text-center">
+                    <button class="btn btn-outline-primary" onclick="app.showAddNewUserDialog()">
+                        <i class="fas fa-user-plus"></i> Register as New Student
+                    </button>
+                </div>
+            `;
+            container.appendChild(addNewContainer);
+        }
     }
 
     displayRealTimeResults(results) {
@@ -293,6 +338,115 @@ class FaceRecognitionApp {
         `;
         
         return item;
+    }
+
+    createEnhancedResultItem(result, isBestMatch = false) {
+        const item = document.createElement('div');
+        item.className = `enhanced-result-item ${isBestMatch ? 'best-match' : ''}`;
+        
+        const confidence = Math.round(result.confidence * 100);
+        const confidenceClass = confidence > 80 ? 'success' : confidence > 60 ? 'warning' : 'error';
+        
+        item.innerHTML = `
+            <div class="result-card">
+                <div class="result-header">
+                    ${isBestMatch ? '<span class="best-match-badge"><i class="fas fa-crown"></i> Best Match</span>' : ''}
+                    <div class="student-photo-container">
+                        <img src="/student_photo/${result.student_id}" 
+                             alt="${result.name}" 
+                             class="student-photo-result"
+                             onerror="this.src='/static/images/default-avatar.svg'">
+                    </div>
+                </div>
+                <div class="result-body">
+                    <h5 class="student-name">${result.name}</h5>
+                    <div class="student-details">
+                        <div><i class="fas fa-id-card"></i> ${result.student_id}</div>
+                        <div><i class="fas fa-graduation-cap"></i> ${result.department}</div>
+                        <div><i class="fas fa-calendar"></i> Year ${result.year}</div>
+                    </div>
+                    <div class="confidence-section">
+                        <div class="confidence-label">Match Confidence:</div>
+                        <div class="confidence-display">
+                            <div class="confidence-bar-large">
+                                <div class="confidence-fill confidence-${confidenceClass}" 
+                                     style="width: ${confidence}%"></div>
+                            </div>
+                            <span class="confidence-percentage badge badge-${confidenceClass}">${confidence}%</span>
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="btn btn-success" onclick="app.markAttendanceForStudent('${result.student_id}', '${result.name}')">
+                            <i class="fas fa-check"></i> Mark Attendance
+                        </button>
+                        <button class="btn btn-outline-primary" onclick="app.viewStudentDetails('${result.student_id}')">
+                            <i class="fas fa-eye"></i> View Details
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        return item;
+    }
+
+    showAddNewUserDialog() {
+        // Create modal for adding new user
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h4><i class="fas fa-user-plus"></i> Register New Student</h4>
+                        <button class="btn-close" onclick="this.closest('.modal-overlay').remove()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <p>The captured face doesn't match any registered students.</p>
+                        <p>Would you like to register this person as a new student?</p>
+                        <div class="captured-preview" id="capturedPreview">
+                            <!-- The captured image will be displayed here -->
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-primary" onclick="app.redirectToAddStudent()">
+                            <i class="fas fa-user-plus"></i> Add New Student
+                        </button>
+                        <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Display the captured image if available
+        if (this.canvas && this.canvas.toDataURL) {
+            const preview = modal.querySelector('#capturedPreview');
+            preview.innerHTML = `
+                <img src="${this.canvas.toDataURL('image/jpeg', 0.8)}" 
+                     alt="Captured face" 
+                     class="captured-face-preview">
+            `;
+        }
+    }
+
+    redirectToAddStudent() {
+        window.location.href = '/add_student';
+    }
+
+    markAttendanceForStudent(studentId, studentName) {
+        if (confirm(`Mark attendance for ${studentName} (${studentId})?`)) {
+            this.markAttendance(studentId);
+        }
+    }
+
+    viewStudentDetails(studentId) {
+        window.location.href = `/edit_student/${studentId}`;
     }
 
     clearRecognitionResults() {

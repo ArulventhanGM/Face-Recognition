@@ -119,6 +119,7 @@
             <table class="table">
                 <thead>
                     <tr>
+                        <th>Photo</th>
                         <th>Date</th>
                         <th>Time</th>
                         <th>Student ID</th>
@@ -133,6 +134,12 @@
                 <tbody>
                     {% for record in attendance_records %}
                     <tr>
+                        <td>
+                            <img src="{{ url_for('student_photo', student_id=record.student_id) }}" 
+                                 alt="{{ record.name }}" 
+                                 class="student-photo"
+                                 onerror="this.src='{{ url_for('static', filename='images/default-avatar.svg') }}';">
+                        </td>
                         <td>{{ record.date }}</td>
                         <td>{{ record.time }}</td>
                         <td>{{ record.student_id }}</td>
@@ -289,4 +296,23 @@
     </div>
     {% endif %}
 </div>
+
+<style>
+.student-photo {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid #ddd;
+    display: block;
+}
+
+.student-photo:hover {
+    transform: scale(2);
+    z-index: 1000;
+    position: relative;
+    border-color: var(--primary-color);
+    transition: all 0.2s ease;
+}
+</style>
 {% endblock %}
