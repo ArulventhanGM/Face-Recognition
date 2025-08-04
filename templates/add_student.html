@@ -320,7 +320,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Form validation before submission
     document.querySelector('form').addEventListener('submit', function(e) {
-        const isEditMode = {{ 'true' if student else 'false' }};
+        // Check if we're in edit mode by looking for student data
+        const isEditMode = document.querySelector('input[name="student_id"]') !== null;
         
         if (!isEditMode && !fileInput.files.length) {
             e.preventDefault();
