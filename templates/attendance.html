@@ -138,7 +138,7 @@
                             <img src="{{ url_for('student_photo', student_id=record.student_id) }}" 
                                  alt="{{ record.name }}" 
                                  class="student-photo"
-                                 onerror="this.src='{{ url_for(&quot;static&quot;, filename=&quot;images/default-avatar.svg&quot;) }}';">
+                                 onerror="this.src='{{ url_for('static', filename='images/default-avatar.svg') }}';">
                         </td>
                         <td>{{ record.date }}</td>
                         <td>{{ record.time }}</td>

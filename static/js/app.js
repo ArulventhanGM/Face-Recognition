@@ -155,8 +155,16 @@ class FaceRecognitionApp {
             const result = await response.json();
             
             if (result.success) {
-                this.displayRecognitionResults(result.data);
-                this.showAlert(`Recognized ${result.data.length} face(s)`, 'success');
+                this.displayRecognitionResults(result);
+
+                // Show appropriate success message based on results
+                if (result.faces_detected === 0) {
+                    this.showAlert('No faces detected in the uploaded image', 'warning');
+                } else if (result.faces_recognized === 0) {
+                    this.showAlert(`Detected ${result.faces_detected} face(s) but none were recognized`, 'warning');
+                } else {
+                    this.showAlert(`Successfully processed ${result.faces_detected} face(s), recognized ${result.faces_recognized}`, 'success');
+                }
             } else {
                 this.showAlert(result.message || 'Failed to process photo', 'error');
             }
@@ -238,23 +246,24 @@ class FaceRecognitionApp {
         }
     }
 
-    displayRecognitionResults(results) {
+    displayRecognitionResults(response) {
         const container = document.getElementById('recognitionResults');
         if (!container) return;
 
         container.innerHTML = '';
-        
-        if (results.length === 0) {
+
+        // Handle case where no faces were detected
+        if (response.faces_detected === 0) {
             container.innerHTML = `
-                <div class="no-matches-container">
-                    <div class="alert alert-warning">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <strong>No matches found</strong><br>
-                        The captured face does not match any registered students.
+                <div class="no-faces-container">
+                    <div class="alert alert-info">
+                        <i class="fas fa-search"></i>
+                        <strong>No faces detected in the image</strong><br>
+                        Please upload an image that contains one or more faces.
                     </div>
                     <div class="text-center mt-3">
-                        <button class="btn btn-primary" onclick="app.showAddNewUserDialog()">
-                            <i class="fas fa-user-plus"></i> Add New Student
+                        <button class="btn btn-primary" onclick="app.resetUploadForm()">
+                            <i class="fas fa-upload"></i> Upload Another Image
                         </button>
                     </div>
                 </div>
@@ -262,12 +271,50 @@ class FaceRecognitionApp {
             return;
         }
 
-        // Create results header
+        // Handle case where faces were detected but none recognized
+        if (response.faces_recognized === 0) {
+            container.innerHTML = `
+                <div class="no-matches-container">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>No matches found</strong><br>
+                        Detected ${response.faces_detected} face(s) but none match registered students.
+                    </div>
+                    <div class="text-center mt-3">
+                        <button class="btn btn-primary" onclick="app.showAddNewUserDialog()">
+                            <i class="fas fa-user-plus"></i> Add New Student
+                        </button>
+                        <button class="btn btn-secondary ml-2" onclick="app.resetUploadForm()">
+                            <i class="fas fa-upload"></i> Upload Another Image
+                        </button>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        const results = response.data || [];
+
+        // Create results header with comprehensive information
         const header = document.createElement('div');
         header.className = 'results-header';
         header.innerHTML = `
             <h4><i class="fas fa-search"></i> Recognition Results</h4>
-            <p class="text-muted">Found ${results.length} match(es) for the captured face:</p>
+            <div class="results-summary">
+                <div class="summary-stats">
+                    <span class="stat-item">
+                        <i class="fas fa-eye"></i> ${response.faces_detected} face(s) detected
+                    </span>
+                    <span class="stat-item">
+                        <i class="fas fa-check-circle"></i> ${response.faces_recognized} recognized
+                    </span>
+                    ${response.faces_unrecognized > 0 ? `
+                        <span class="stat-item">
+                            <i class="fas fa-question-circle"></i> ${response.faces_unrecognized} unrecognized
+                        </span>
+                    ` : ''}
+                </div>
+            </div>
         `;
         container.appendChild(header);
 
@@ -279,14 +326,33 @@ class FaceRecognitionApp {
             container.appendChild(resultItem);
         });
 
+        // Add unrecognized faces information if any
+        if (response.faces_unrecognized > 0) {
+            const unrecognizedContainer = document.createElement('div');
+            unrecognizedContainer.className = 'unrecognized-faces-container mt-3';
+            unrecognizedContainer.innerHTML = `
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Unrecognized Faces</strong><br>
+                    ${response.faces_unrecognized} face(s) were detected but not found in the student database.
+                </div>
+                <div class="text-center">
+                    <button class="btn btn-outline-primary" onclick="app.showAddNewUserDialog()">
+                        <i class="fas fa-user-plus"></i> Register New Student
+                    </button>
+                </div>
+            `;
+            container.appendChild(unrecognizedContainer);
+        }
+
         // Add "Add New Student" option if confidence is low
         const bestMatch = results[0];
         if (bestMatch && bestMatch.confidence < 0.8) {
             const addNewContainer = document.createElement('div');
             addNewContainer.className = 'add-new-container mt-3';
             addNewContainer.innerHTML = `
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle"></i>
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
                     <strong>Low confidence match</strong><br>
                     If this person is not ${bestMatch.name}, you can register them as a new student.
                 </div>
@@ -298,6 +364,16 @@ class FaceRecognitionApp {
             `;
             container.appendChild(addNewContainer);
         }
+
+        // Add re-upload option
+        const reuploadContainer = document.createElement('div');
+        reuploadContainer.className = 'reupload-container mt-3 text-center';
+        reuploadContainer.innerHTML = `
+            <button class="btn btn-outline-secondary" onclick="app.resetUploadForm()">
+                <i class="fas fa-upload"></i> Upload Another Image
+            </button>
+        `;
+        container.appendChild(reuploadContainer);
     }
 
     displayRealTimeResults(results) {
@@ -439,6 +515,37 @@ class FaceRecognitionApp {
         window.location.href = '/add_student';
     }
 
+    resetUploadForm() {
+        // Reset the photo recognition form
+        const form = document.getElementById('photoRecognitionForm');
+        const fileInput = document.getElementById('uploadPhoto');
+        const wrapper = document.querySelector('#photoRecognitionForm .file-input-wrapper');
+        const resultsContainer = document.getElementById('recognitionResults');
+
+        if (form) form.reset();
+
+        if (wrapper) {
+            // Reset visual feedback
+            wrapper.style.borderColor = '';
+            wrapper.style.backgroundColor = '';
+            const iconElement = wrapper.querySelector('i');
+            if (iconElement) {
+                iconElement.className = 'fas fa-upload';
+            }
+            // Reset text
+            const textNode = wrapper.childNodes[wrapper.childNodes.length - 1];
+            if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+                textNode.textContent = 'Select photo for recognition';
+            }
+        }
+
+        if (resultsContainer) {
+            resultsContainer.innerHTML = '<p class="text-center text-muted">Upload a photo to see recognition results</p>';
+        }
+
+        this.showAlert('Form reset. You can now upload a new image.', 'info', 3000);
+    }
+
     markAttendanceForStudent(studentId, studentName) {
         if (confirm(`Mark attendance for ${studentName} (${studentId})?`)) {
             this.markAttendance(studentId);
@@ -489,17 +596,10 @@ class FaceRecognitionApp {
             return;
         }
 
-        // Validate file type
-        if (!file.type.startsWith('image/')) {
-            this.showAlert('Please select a valid image file (PNG, JPG, JPEG, GIF, BMP)', 'error');
-            event.target.value = '';
-            this.removeImagePreview(event.target);
-            return;
-        }
-
-        // Validate file size (max 16MB)
-        if (file.size > 16 * 1024 * 1024) {
-            this.showAlert('File size too large. Maximum 16MB allowed.', 'error');
+        // Comprehensive file validation
+        const validationResult = this.validateImageFile(file);
+        if (!validationResult.valid) {
+            this.showAlert(validationResult.message, 'error');
             event.target.value = '';
             this.removeImagePreview(event.target);
             return;
@@ -507,9 +607,40 @@ class FaceRecognitionApp {
 
         // Show success message for valid file
         this.showAlert(`Image "${file.name}" selected successfully`, 'success', 3000);
-        
+
         // Show preview if it's an image
         this.showImagePreview(file, event.target);
+    }
+
+    validateImageFile(file) {
+        // Check file type
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/bmp', 'image/webp'];
+        if (!allowedTypes.includes(file.type.toLowerCase())) {
+            return {
+                valid: false,
+                message: 'Invalid file type. Please select a valid image file (JPG, PNG, GIF, BMP, WebP)'
+            };
+        }
+
+        // Check file size (max 16MB)
+        const maxSize = 16 * 1024 * 1024; // 16MB
+        if (file.size > maxSize) {
+            return {
+                valid: false,
+                message: `File size too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum allowed size is 16MB.`
+            };
+        }
+
+        // Check minimum file size (avoid empty files)
+        if (file.size < 1024) { // 1KB minimum
+            return {
+                valid: false,
+                message: 'File appears to be too small or corrupted. Please select a valid image file.'
+            };
+        }
+
+        // Additional checks for image dimensions could be added here
+        return { valid: true, message: 'File is valid' };
     }
 
     removeImagePreview(input) {
@@ -605,10 +736,21 @@ class FaceRecognitionApp {
 
     confirmDelete(event) {
         event.preventDefault();
-        const message = event.target.dataset.confirm || 'Are you sure you want to delete this item?';
+        
+        // Find the actual link element (could be event.target or its parent)
+        let linkElement = event.target;
+        
+        // If we clicked on an icon inside the link, get the parent link
+        if (linkElement.tagName === 'I') {
+            linkElement = linkElement.parentElement;
+        }
+        
+        // Get the confirmation message and href from the link element
+        const message = linkElement.dataset.confirm || 'Are you sure you want to delete this item?';
+        const href = linkElement.href;
         
         if (confirm(message)) {
-            window.location.href = event.target.href;
+            window.location.href = href;
         }
     }
 

@@ -25,7 +25,7 @@ class DataManager:
         self.embeddings_file = os.path.join(data_folder, "face_embeddings.pkl")
         
         # CSV column definitions
-        self.student_columns = ['student_id', 'name', 'email', 'department', 'year', 'registration_date']
+        self.student_columns = ['student_id', 'name', 'email', 'department', 'year', 'registration_date', 'photo_path']
         self.attendance_columns = ['student_id', 'name', 'date', 'time', 'status', 'confidence', 'method']
         
         # In-memory storage for face embeddings
@@ -85,7 +85,10 @@ class DataManager:
             
             # Add registration date
             student_data['registration_date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
+
+            # Store photo path
+            student_data['photo_path'] = face_image_path if face_image_path else ''
+
             # Extract face embedding if image provided
             if face_image_path and os.path.exists(face_image_path):
                 face_recognizer = get_face_recognizer()
@@ -97,7 +100,7 @@ class DataManager:
                         self._save_face_embeddings()
                     else:
                         logger.warning(f"Could not extract face embedding for student {student_data['student_id']}")
-            
+
             # Add to CSV
             SecureCSVHandler.append_to_csv(student_data, self.students_file, self.student_columns)
             
@@ -131,27 +134,31 @@ class DataManager:
             logger.error(f"Error getting all students: {e}")
             return []
     
-    def update_student(self, student_id: str, updated_data: Dict[str, Any]) -> bool:
+    def update_student(self, student_id: str, updated_data: Dict[str, Any], new_photo_path: Optional[str] = None) -> bool:
         """Update student information"""
         try:
             df = SecureCSVHandler.safe_read_csv(self.students_file)
-            
+
             # Find student
             student_index = df[df['student_id'] == student_id].index
             if student_index.empty:
                 return False
-            
+
             # Update data
             for key, value in updated_data.items():
                 if key in self.student_columns and key != 'student_id':  # Don't allow ID changes
                     df.loc[student_index[0], key] = value
-            
+
+            # Update photo path if provided
+            if new_photo_path is not None:
+                df.loc[student_index[0], 'photo_path'] = new_photo_path
+
             # Save back to CSV
             SecureCSVHandler.safe_write_csv(df.to_dict('records'), self.students_file, self.student_columns)
-            
+
             logger.info(f"Updated student: {student_id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error updating student {student_id}: {e}")
             return False
@@ -235,43 +242,93 @@ class DataManager:
             logger.error(f"Error getting all attendance: {e}")
             return []
     
-    def recognize_face_from_image(self, image_path: str) -> List[Dict[str, Any]]:
+    def recognize_face_from_image(self, image_path: str) -> Dict[str, Any]:
         """Recognize faces from uploaded image"""
         try:
             face_recognizer = get_face_recognizer()
             image = face_recognizer.load_image(image_path)
-            
+
             if image is None:
-                return []
-            
+                return {
+                    'success': False,
+                    'error': 'Could not load image',
+                    'faces_detected': 0,
+                    'faces_recognized': [],
+                    'faces_unrecognized': []
+                }
+
+            # Detect faces first
+            face_locations = face_recognizer.detect_faces(image)
+
+            if len(face_locations) == 0:
+                return {
+                    'success': True,
+                    'error': None,
+                    'faces_detected': 0,
+                    'faces_recognized': [],
+                    'faces_unrecognized': [],
+                    'message': 'No faces detected in the image'
+                }
+
             # Extract all face embeddings from image
             face_embeddings = face_recognizer.extract_multiple_face_embeddings(image)
-            face_locations = face_recognizer.detect_faces(image)
-            
+
             recognized_faces = []
-            
+            unrecognized_faces = []
+
             for i, embedding in enumerate(face_embeddings):
                 # Try to identify the face
                 student_id, distance = face_recognizer.identify_face(embedding, self.face_embeddings)
-                
+
+                location = face_locations[i] if i < len(face_locations) else None
+
                 if student_id:
                     student = self.get_student(student_id)
                     if student:
                         confidence = 1 - distance  # Convert distance to confidence
-                        location = face_locations[i] if i < len(face_locations) else None
-                        
+
                         recognized_faces.append({
                             'student_id': student_id,
                             'name': student['name'],
+                            'email': student['email'],
+                            'department': student['department'],
+                            'year': student['year'],
                             'confidence': confidence,
                             'location': location
                         })
-            
-            return recognized_faces
-            
+                    else:
+                        # Student ID found but student data missing
+                        unrecognized_faces.append({
+                            'face_index': i,
+                            'location': location,
+                            'reason': 'Student data not found'
+                        })
+                else:
+                    # Face detected but not recognized
+                    unrecognized_faces.append({
+                        'face_index': i,
+                        'location': location,
+                        'reason': 'Face not in database'
+                    })
+
+            return {
+                'success': True,
+                'error': None,
+                'faces_detected': len(face_locations),
+                'faces_recognized': recognized_faces,
+                'faces_unrecognized': unrecognized_faces,
+                'message': f'Detected {len(face_locations)} face(s), recognized {len(recognized_faces)}'
+            }
+
         except Exception as e:
             logger.error(f"Error recognizing faces from image: {e}")
-            return []
+            return {
+                'success': False,
+                'error': str(e),
+                'faces_detected': 0,
+                'faces_recognized': [],
+                'faces_unrecognized': []
+            }
     
     def recognize_face_from_embedding(self, embedding: np.ndarray) -> Optional[Dict[str, Any]]:
         """Recognize face from embedding (for real-time recognition)"""
@@ -301,22 +358,47 @@ class DataManager:
     def bulk_mark_attendance_from_image(self, image_path: str) -> Dict[str, Any]:
         """Mark attendance for all recognized faces in an image"""
         try:
-            recognized_faces = self.recognize_face_from_image(image_path)
-            
+            recognition_result = self.recognize_face_from_image(image_path)
+
+            if not recognition_result['success']:
+                return {
+                    'success': False,
+                    'message': recognition_result.get('error', 'Failed to process image'),
+                    'total_faces': 0,
+                    'marked_attendance': [],
+                    'already_marked': [],
+                    'errors': []
+                }
+
+            recognized_faces = recognition_result['faces_recognized']
+
             results = {
-                'total_faces': len(recognized_faces),
+                'success': True,
+                'total_faces': recognition_result['faces_detected'],
+                'faces_recognized': len(recognized_faces),
+                'faces_unrecognized': len(recognition_result['faces_unrecognized']),
                 'marked_attendance': [],
                 'already_marked': [],
                 'errors': []
             }
-            
+
+            # Handle case where no faces were detected
+            if recognition_result['faces_detected'] == 0:
+                results['message'] = 'No faces detected in the image'
+                return results
+
+            # Handle case where faces were detected but none recognized
+            if len(recognized_faces) == 0:
+                results['message'] = f"Detected {recognition_result['faces_detected']} face(s) but none were recognized"
+                return results
+
             for face in recognized_faces:
                 student_id = face['student_id']
                 confidence = face['confidence']
-                
+
                 # Mark attendance
                 success = self.mark_attendance(student_id, method="photo", confidence=confidence)
-                
+
                 if success:
                     results['marked_attendance'].append({
                         'student_id': student_id,
@@ -328,7 +410,7 @@ class DataManager:
                     today = datetime.now().strftime('%Y-%m-%d')
                     today_attendance = self.get_attendance_by_date(today)
                     already_marked = any(att['student_id'] == student_id for att in today_attendance)
-                    
+
                     if already_marked:
                         results['already_marked'].append({
                             'student_id': student_id,

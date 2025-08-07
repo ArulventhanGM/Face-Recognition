@@ -338,6 +338,7 @@ def edit_student(student_id):
                 return render_template('add_student.html', student=student)
             
             # Handle face image update
+            new_photo_path = None
             if 'face_image' in request.files:
                 file = request.files['face_image']
                 if file and file.filename:
@@ -351,18 +352,19 @@ def edit_student(student_id):
                             if embedding is not None:
                                 data_manager.face_embeddings[student_id] = embedding
                                 data_manager._save_face_embeddings()
-                                flash('Face data updated successfully!', 'success')
+                                new_photo_path = face_image_path  # Store the new photo path
+                                flash('Face data and photo updated successfully!', 'success')
                             else:
                                 flash('Could not extract face from image', 'warning')
-                        
-                        # Clean up uploaded file
-                        try:
-                            os.remove(face_image_path)
-                        except:
-                            pass
-            
+                                # Still save the photo even if face extraction failed
+                                new_photo_path = face_image_path
+                        else:
+                            flash('Could not load image', 'warning')
+                            # Still save the photo path
+                            new_photo_path = face_image_path
+
             # Update student data
-            success = data_manager.update_student(student_id, updated_data)
+            success = data_manager.update_student(student_id, updated_data, new_photo_path)
             
             if success:
                 flash(f'Student {updated_data["name"]} updated successfully!', 'success')
@@ -422,34 +424,45 @@ def recognize_photo():
     try:
         if 'photo' not in request.files:
             return jsonify({'success': False, 'message': 'No photo uploaded'})
-        
+
         file = request.files['photo']
         if not file or not file.filename:
             return jsonify({'success': False, 'message': 'No photo selected'})
-        
+
         # Save uploaded file
         filepath = save_uploaded_file(file)
         if not filepath:
             return jsonify({'success': False, 'message': 'Invalid image file'})
-        
+
         try:
             # Recognize faces
             data_manager = get_data_manager()
-            recognized_faces = data_manager.recognize_face_from_image(filepath)
-            
+            recognition_result = data_manager.recognize_face_from_image(filepath)
+
+            if not recognition_result['success']:
+                return jsonify({
+                    'success': False,
+                    'message': recognition_result.get('error', 'Failed to process image')
+                })
+
+            # Return comprehensive results
             return jsonify({
                 'success': True,
-                'data': recognized_faces,
-                'message': f'Recognized {len(recognized_faces)} face(s)'
+                'data': recognition_result['faces_recognized'],
+                'faces_detected': recognition_result['faces_detected'],
+                'faces_recognized': len(recognition_result['faces_recognized']),
+                'faces_unrecognized': len(recognition_result['faces_unrecognized']),
+                'unrecognized_details': recognition_result['faces_unrecognized'],
+                'message': recognition_result.get('message', f'Processed {recognition_result["faces_detected"]} face(s)')
             })
-            
+
         finally:
             # Clean up uploaded file
             try:
                 os.remove(filepath)
             except:
                 pass
-                
+
     except Exception as e:
         logger.error(f"Error recognizing photo: {e}")
         return jsonify({'success': False, 'message': 'Failed to process photo'})
@@ -603,29 +616,38 @@ def student_photo(student_id):
     try:
         data_manager = get_data_manager()
         student = data_manager.get_student(student_id)
-        
+
         if not student:
             # Return default avatar
             return redirect(url_for('static', filename='images/default-avatar.svg'))
-        
-        # Look for student photo in uploads folder
+
+        # Check if student has a stored photo path
+        photo_path = student.get('photo_path', '')
+        if photo_path and os.path.exists(photo_path):
+            return send_file(photo_path)
+
+        # Fallback: Look for student photo in uploads folder
         upload_folder = app.config['UPLOAD_FOLDER']
-        
-        # Check for common image extensions
+
+        # Check for common image extensions with student ID
         for ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp']:
-            photo_path = os.path.join(upload_folder, f"{student_id}.{ext}")
-            if os.path.exists(photo_path):
-                return send_file(photo_path)
-        
+            fallback_path = os.path.join(upload_folder, f"{student_id}.{ext}")
+            if os.path.exists(fallback_path):
+                return send_file(fallback_path)
+
         # Look for timestamped files containing student_id
-        for filename in os.listdir(upload_folder):
-            if student_id.lower() in filename.lower() and any(filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']):
-                photo_path = os.path.join(upload_folder, filename)
-                return send_file(photo_path)
-        
+        try:
+            for filename in os.listdir(upload_folder):
+                if student_id.lower() in filename.lower() and any(filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']):
+                    fallback_path = os.path.join(upload_folder, filename)
+                    if os.path.exists(fallback_path):
+                        return send_file(fallback_path)
+        except OSError:
+            pass  # Directory might not exist
+
         # Return default avatar if no photo found
         return redirect(url_for('static', filename='images/default-avatar.svg'))
-        
+
     except Exception as e:
         logger.error(f"Error serving student photo for {student_id}: {e}")
         return redirect(url_for('static', filename='images/default-avatar.svg'))
