@@ -7,8 +7,14 @@ from utils.security import SecureCSVHandler, validate_student_id, validate_email
 try:
     from utils.face_recognition_utils import get_face_recognizer
 except ImportError:
-    # Fallback to mock for testing
-    from utils.face_recognition_mock import get_face_recognizer
+    try:
+        # Try enhanced face recognition system
+        from utils.enhanced_face_recognition import get_enhanced_face_recognizer as get_face_recognizer
+        logger.info("Using enhanced face recognition system")
+    except ImportError:
+        # Final fallback to mock for testing
+        from utils.face_recognition_mock import get_face_recognizer
+        logger.info("Using mock face recognition system")
 import pickle
 import cv2
 import logging
@@ -166,22 +172,40 @@ class DataManager:
     def delete_student(self, student_id: str) -> bool:
         """Delete student and associated data"""
         try:
+            # Get student info before deletion for photo cleanup
+            student = self.get_student(student_id)
+
             df = SecureCSVHandler.safe_read_csv(self.students_file)
-            
+
             # Remove student from DataFrame
             df = df[df['student_id'] != student_id]
-            
+
             # Save back to CSV
             SecureCSVHandler.safe_write_csv(df.to_dict('records'), self.students_file, self.student_columns)
-            
+
             # Remove face embedding
             if student_id in self.face_embeddings:
                 del self.face_embeddings[student_id]
                 self._save_face_embeddings()
-            
+
+            # Clean up photo file if it exists
+            if student and student.get('photo_path'):
+                photo_path = student['photo_path']
+                # Check if photo_path is valid (not NaN, not 'nan', not empty)
+                if (photo_path and
+                    str(photo_path).lower() != 'nan' and
+                    str(photo_path).strip() != '' and
+                    not pd.isna(photo_path)):
+                    if os.path.exists(str(photo_path)):
+                        try:
+                            os.remove(str(photo_path))
+                            logger.info(f"Deleted photo file: {photo_path}")
+                        except Exception as photo_error:
+                            logger.warning(f"Could not delete photo file {photo_path}: {photo_error}")
+
             logger.info(f"Deleted student: {student_id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error deleting student {student_id}: {e}")
             return False
@@ -277,8 +301,9 @@ class DataManager:
             unrecognized_faces = []
 
             for i, embedding in enumerate(face_embeddings):
-                # Try to identify the face
-                student_id, distance = face_recognizer.identify_face(embedding, self.face_embeddings)
+                # Try to identify the face with optimized threshold
+                # Use higher threshold for better accuracy (0.75 instead of default 0.6)
+                student_id, distance = face_recognizer.identify_face(embedding, self.face_embeddings, threshold=0.75)
 
                 location = face_locations[i] if i < len(face_locations) else None
 
@@ -334,20 +359,23 @@ class DataManager:
         """Recognize face from embedding (for real-time recognition)"""
         try:
             face_recognizer = get_face_recognizer()
-            student_id, distance = face_recognizer.identify_face(embedding, self.face_embeddings)
-            
+            # Use optimized threshold for real-time recognition
+            student_id, distance = face_recognizer.identify_face(embedding, self.face_embeddings, threshold=0.75)
+
             if student_id:
                 student = self.get_student(student_id)
                 if student:
                     confidence = 1 - distance
-                    return {
-                        'student_id': student_id,
-                        'name': student['name'],
-                        'email': student['email'],
-                        'department': student['department'],
-                        'year': student['year'],
-                        'confidence': confidence
-                    }
+                    # Only return results with high confidence (>60%)
+                    if confidence > 0.6:
+                        return {
+                            'student_id': student_id,
+                            'name': student['name'],
+                            'email': student['email'],
+                            'department': student['department'],
+                            'year': student['year'],
+                            'confidence': confidence
+                        }
             
             return None
             

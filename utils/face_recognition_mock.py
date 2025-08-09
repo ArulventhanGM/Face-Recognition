@@ -16,10 +16,15 @@ class MockFaceRecognitionSystem:
         logger.info("Mock face recognition system initialized")
     
     def extract_face_embedding(self, image: np.ndarray) -> Optional[np.ndarray]:
-        """Mock face embedding extraction"""
+        """Mock face embedding extraction with deterministic results"""
         if image is not None and image.size > 0:
-            # Return a random embedding for testing
-            return np.random.rand(512).astype(np.float32)
+            # Create a deterministic embedding based on image properties
+            # This ensures the same image produces the same embedding
+            image_hash = hash(image.tobytes()) % 1000000
+            np.random.seed(image_hash)  # Seed with image hash for consistency
+            embedding = np.random.rand(512).astype(np.float32)
+            np.random.seed()  # Reset seed
+            return embedding
         return None
     
     def detect_faces(self, image: np.ndarray) -> List[Tuple[int, int, int, int]]:
@@ -31,15 +36,25 @@ class MockFaceRecognitionSystem:
         return []
     
     def extract_multiple_face_embeddings(self, image: np.ndarray) -> List[np.ndarray]:
-        """Mock multiple face embeddings"""
+        """Mock multiple face embeddings with deterministic results"""
         faces = self.detect_faces(image)
-        return [np.random.rand(512).astype(np.float32) for _ in faces]
+        embeddings = []
+        for i, face in enumerate(faces):
+            # Create deterministic embedding for each face
+            face_hash = hash(image.tobytes() + str(i).encode()) % 1000000
+            np.random.seed(face_hash)
+            embedding = np.random.rand(512).astype(np.float32)
+            np.random.seed()  # Reset seed
+            embeddings.append(embedding)
+        return embeddings
     
-    def compare_faces(self, known_embedding: np.ndarray, unknown_embedding: np.ndarray, 
+    def compare_faces(self, known_embedding: np.ndarray, unknown_embedding: np.ndarray,
                      threshold: float = 0.6) -> Tuple[bool, float]:
-        """Mock face comparison"""
-        # Simulate comparison with random distance
-        distance = np.random.uniform(0.3, 0.9)
+        """Mock face comparison with realistic similarity"""
+        # Calculate actual distance between embeddings for more realistic results
+        distance = np.linalg.norm(known_embedding - unknown_embedding)
+        # Normalize distance to 0-1 range
+        distance = min(distance / 10.0, 1.0)
         is_match = distance < threshold
         return is_match, distance
     

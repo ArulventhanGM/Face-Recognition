@@ -85,7 +85,8 @@ class SecureCSVHandler:
             if file_size == 0:
                 return pd.DataFrame()
             
-            df = pd.read_csv(file_path)
+            # Read CSV with student_id as string to prevent type conversion issues
+            df = pd.read_csv(file_path, dtype={'student_id': str})
             
             # Limit rows
             if len(df) > 10000:

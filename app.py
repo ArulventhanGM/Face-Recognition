@@ -328,9 +328,12 @@ def edit_student(student_id):
                 'year': request.form.get('year', '').strip()
             }
             
-            # Validate
-            if not all(updated_data.values()):
-                flash('All fields are required', 'error')
+            # Validate required fields
+            required_fields = ['name', 'email', 'department', 'year']
+            missing_fields = [field for field in required_fields if not updated_data.get(field)]
+
+            if missing_fields:
+                flash(f'The following fields are required: {", ".join(missing_fields)}', 'error')
                 return render_template('add_student.html', student=student)
             
             if not validate_email(updated_data['email']):
@@ -416,6 +419,12 @@ def delete_student(student_id):
 def recognition():
     """Face recognition page"""
     return render_template('recognition.html')
+
+@app.route('/realtime_recognition')
+@login_required
+def realtime_recognition():
+    """Real-time face recognition page"""
+    return render_template('realtime_recognition.html')
 
 @app.route('/recognize_photo', methods=['POST'])
 @login_required
@@ -511,24 +520,26 @@ def process_photo():
 @app.route('/recognize_realtime', methods=['POST'])
 @login_required
 def recognize_realtime():
-    """Real-time face recognition from camera"""
+    """Enhanced real-time face recognition from camera"""
     try:
         data = request.get_json()
         if not data or 'image' not in data:
             return jsonify({'success': False, 'message': 'No image data'})
-        
+
         # Decode base64 image
         image = decode_base64_image(data['image'])
         if image is None:
             return jsonify({'success': False, 'message': 'Invalid image data'})
-        
-        # Extract face embeddings
+
+        # Get face recognizer and data manager
         face_recognizer = get_face_recognizer()
-        face_embeddings = face_recognizer.extract_multiple_face_embeddings(image)
-        
-        recognized_faces = []
         data_manager = get_data_manager()
-        
+
+        # Process frame for real-time recognition
+        face_locations, face_embeddings = face_recognizer.process_webcam_frame(image)
+
+        recognized_faces = []
+
         for embedding in face_embeddings:
             result = data_manager.recognize_face_from_embedding(embedding)
             if result:
@@ -536,7 +547,10 @@ def recognize_realtime():
         
         return jsonify({
             'success': True,
-            'data': recognized_faces
+            'data': recognized_faces,
+            'face_locations': face_locations,
+            'faces_detected': len(face_locations),
+            'faces_recognized': len(recognized_faces)
         })
         
     except Exception as e:
@@ -608,6 +622,43 @@ def bulk_attendance():
     except Exception as e:
         logger.error(f"Error processing group photo: {e}")
         return jsonify({'success': False, 'message': 'Failed to process group photo'})
+
+@app.route('/mark_bulk_attendance', methods=['POST'])
+@login_required
+def mark_bulk_attendance():
+    """Mark attendance for multiple students (from real-time recognition)"""
+    try:
+        data = request.get_json()
+        if not data or 'student_ids' not in data:
+            return jsonify({'success': False, 'message': 'Student IDs required'})
+
+        student_ids = data['student_ids']
+        method = data.get('method', 'bulk')
+
+        data_manager = get_data_manager()
+        marked_count = 0
+        errors = []
+
+        for student_id in student_ids:
+            try:
+                success = data_manager.mark_attendance(student_id, method=method)
+                if success:
+                    marked_count += 1
+                else:
+                    errors.append(f'Failed to mark attendance for {student_id}')
+            except Exception as e:
+                errors.append(f'Error marking attendance for {student_id}: {str(e)}')
+
+        return jsonify({
+            'success': True,
+            'marked_count': marked_count,
+            'total_requested': len(student_ids),
+            'errors': errors
+        })
+
+    except Exception as e:
+        logger.error(f"Error marking bulk attendance: {e}")
+        return jsonify({'success': False, 'message': 'Failed to mark bulk attendance'})
 
 @app.route('/student_photo/<student_id>')
 @login_required
