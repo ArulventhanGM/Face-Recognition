@@ -57,17 +57,35 @@
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">
+                    <i class="fas fa-brain"></i>
+                    Face Training System
+                </h2>
+            </div>
+            <p class="mb-3">Train the system to recognize individuals with multiple photos for enhanced accuracy.</p>
+            <div class="d-flex gap-2">
+                <a href="{{ url_for('face_training') }}" class="btn btn-primary">
+                    <i class="fas fa-brain"></i> Start Training
+                </a>
+                <a href="{{ url_for('face_training') }}#trained-faces" class="btn btn-secondary">
+                    <i class="fas fa-database"></i> Manage Training Data
+                </a>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">
                     <i class="fas fa-camera"></i>
                     Face Recognition
                 </h2>
             </div>
             <p class="mb-3">Real-time recognition and photo-based attendance marking.</p>
             <div class="d-flex gap-2">
-                <a href="{{ url_for('recognition') }}" class="btn btn-success">
+                <a href="{{ url_for('realtime_recognition') }}" class="btn btn-success">
                     <i class="fas fa-video"></i> Live Recognition
                 </a>
-                <a href="{{ url_for('bulk_attendance') }}" class="btn btn-warning">
-                    <i class="fas fa-images"></i> Bulk Attendance
+                <a href="{{ url_for('recognition') }}" class="btn btn-warning">
+                    <i class="fas fa-images"></i> Photo Recognition
                 </a>
             </div>
         </div>

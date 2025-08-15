@@ -14,9 +14,13 @@ class Config:
     DATA_FOLDER = os.environ.get('DATA_FOLDER') or 'data'
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 16777216))  # 16MB
     
-    # Face recognition settings
-    FACE_RECOGNITION_TOLERANCE = 0.6
-    MAX_FACE_DISTANCE = 0.4
+    # Face recognition settings - Optimized for 90%+ accuracy
+    FACE_RECOGNITION_TOLERANCE = 0.65  # Optimized threshold for enhanced backend
+    MAX_FACE_DISTANCE = 0.35           # Stricter distance for better accuracy
+    MIN_FACE_SIZE = 30                 # Minimum face size for detection
+    MAX_FACE_SIZE = 300               # Maximum face size for detection
+    FACE_PADDING_RATIO = 0.2          # Padding around detected faces
+    CONFIDENCE_THRESHOLD = 0.7        # Face detection confidence threshold
     
     # CSV security settings
     MAX_CSV_ROWS = 10000

@@ -247,8 +247,12 @@ class FaceRecognitionApp {
     }
 
     displayRecognitionResults(response) {
+        console.log('displayRecognitionResults called with:', response); // Debug log
         const container = document.getElementById('recognitionResults');
-        if (!container) return;
+        if (!container) {
+            console.error('recognitionResults container not found!');
+            return;
+        }
 
         container.innerHTML = '';
 
@@ -293,7 +297,13 @@ class FaceRecognitionApp {
             return;
         }
 
-        const results = response.data || [];
+        // Support both response.data and response.faces_recognized as sources for recognized faces
+        let results = [];
+        if (response.data && Array.isArray(response.data)) {
+            results = response.data;
+        } else if (response.faces_recognized && Array.isArray(response.faces_recognized)) {
+            results = response.faces_recognized;
+        }
 
         // Create results header with comprehensive information
         const header = document.createElement('div');

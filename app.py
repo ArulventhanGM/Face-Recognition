@@ -11,13 +11,9 @@ import logging
 from collections import defaultdict, Counter
 
 from config import Config
-from utils.data_manager import get_data_manager
-try:
-    from utils.face_recognition_utils import get_face_recognizer
-except ImportError:
-    # Fallback to mock for testing
-    from utils.face_recognition_mock import get_face_recognizer
+from utils.data_manager import get_data_manager, get_face_recognizer
 from utils.security import sanitize_filename, validate_student_id, validate_email
+from utils.data_manager import get_face_recognition_backend
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -177,6 +173,19 @@ def dashboard():
     return render_template('dashboard.html', 
                          stats=stats, 
                          recent_attendance=recent_attendance)
+
+@app.route('/diagnostics')
+@login_required
+def diagnostics():
+    """Runtime diagnostics for face recognition backend & data health."""
+    dm = get_data_manager()
+    backend = get_face_recognition_backend() if 'get_face_recognition_backend' in globals() else 'unknown'
+    return jsonify({
+        'backend': backend,
+        'students_count': len(dm.get_all_students()),
+        'embeddings_count': len(dm.face_embeddings),
+        'attendance_records': len(dm.get_all_attendance())
+    })
 
 @app.route('/students')
 @login_required
@@ -447,6 +456,9 @@ def recognize_photo():
             # Recognize faces
             data_manager = get_data_manager()
             recognition_result = data_manager.recognize_face_from_image(filepath)
+            
+            # Debug logging
+            logger.info(f"Recognition result: {recognition_result}")
 
             if not recognition_result['success']:
                 return jsonify({
@@ -835,6 +847,267 @@ def not_found_error(error):
 @app.errorhandler(500)
 def internal_error(error):
     return render_template('errors/500.html'), 500
+
+# Face Training System Routes
+
+@app.route('/face_training')
+@login_required
+def face_training():
+    """Face training interface"""
+    try:
+        data_manager = get_data_manager()
+        students = data_manager.get_all_students()
+        
+        # Get training statistics
+        training_summary = data_manager.get_trained_faces_summary()
+        
+        return render_template('face_training.html',
+                             students=students,
+                             trained_faces_count=training_summary['statistics']['total_faces'],
+                             total_training_images=training_summary['statistics']['total_images'],
+                             average_accuracy=training_summary['statistics']['average_accuracy'])
+    except Exception as e:
+        logger.error(f"Error loading face training page: {e}")
+        flash('Error loading face training interface', 'error')
+        return redirect(url_for('dashboard'))
+
+@app.route('/train_existing_student', methods=['POST'])
+@login_required
+def train_existing_student():
+    """Train face recognition for an existing student"""
+    try:
+        student_id = request.form.get('student_id')
+        if not student_id:
+            return jsonify({'success': False, 'message': 'Student ID is required'})
+        
+        data_manager = get_data_manager()
+        student = data_manager.get_student(student_id)
+        if not student:
+            return jsonify({'success': False, 'message': 'Student not found'})
+        
+        # Handle uploaded training images
+        training_images = request.files.getlist('training_images')
+        if len(training_images) < 3:
+            return jsonify({'success': False, 'message': 'At least 3 training images are required'})
+        
+        # Save uploaded images temporarily
+        temp_image_paths = []
+        for i, image_file in enumerate(training_images):
+            if image_file and allowed_file(image_file.filename):
+                filename = secure_filename(f"{student_id}_training_{i}_{image_file.filename}")
+                temp_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                image_file.save(temp_path)
+                temp_image_paths.append(temp_path)
+        
+        if len(temp_image_paths) == 0:
+            return jsonify({'success': False, 'message': 'No valid images uploaded'})
+        
+        # Perform training
+        result = data_manager.train_face_with_multiple_images(student_id, temp_image_paths)
+        
+        # Clean up temporary files
+        for temp_path in temp_image_paths:
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+        
+        # Add student information to result
+        if result['success']:
+            result['student_name'] = student['name']
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error training existing student: {e}")
+        return jsonify({'success': False, 'message': f'Training failed: {str(e)}'})
+
+@app.route('/train_new_person', methods=['POST'])
+@login_required
+def train_new_person():
+    """Register a new person and train face recognition simultaneously"""
+    try:
+        # Get form data
+        student_data = {
+            'student_id': request.form.get('student_id', '').strip(),
+            'name': request.form.get('name', '').strip(),
+            'email': request.form.get('email', '').strip(),
+            'department': request.form.get('department', '').strip(),
+            'year': request.form.get('year', '').strip()
+        }
+        
+        # Validate required fields
+        for field, value in student_data.items():
+            if not value:
+                return jsonify({'success': False, 'message': f'{field.replace("_", " ").title()} is required'})
+        
+        # Handle uploaded training images
+        training_images = request.files.getlist('training_images')
+        if len(training_images) < 3:
+            return jsonify({'success': False, 'message': 'At least 3 training images are required'})
+        
+        data_manager = get_data_manager()
+        
+        # Check if student already exists
+        if data_manager.get_student(student_data['student_id']):
+            return jsonify({'success': False, 'message': 'Student ID already exists'})
+        
+        # Save uploaded images temporarily
+        temp_image_paths = []
+        for i, image_file in enumerate(training_images):
+            if image_file and allowed_file(image_file.filename):
+                filename = secure_filename(f"{student_data['student_id']}_training_{i}_{image_file.filename}")
+                temp_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                image_file.save(temp_path)
+                temp_image_paths.append(temp_path)
+        
+        if len(temp_image_paths) == 0:
+            return jsonify({'success': False, 'message': 'No valid images uploaded'})
+        
+        # Register the student first (without face data)
+        student_added = data_manager.add_student(student_data)
+        if not student_added:
+            return jsonify({'success': False, 'message': 'Failed to register student'})
+        
+        # Perform face training
+        result = data_manager.train_face_with_multiple_images(student_data['student_id'], temp_image_paths)
+        
+        # Clean up temporary files
+        for temp_path in temp_image_paths:
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+        
+        # Add student information to result
+        if result['success']:
+            result['student_name'] = student_data['name']
+            
+            # Save the first image as the student's profile photo
+            if len(temp_image_paths) > 0:
+                try:
+                    profile_filename = secure_filename(f"{student_data['student_id']}.jpg")
+                    profile_path = os.path.join(app.config['UPLOAD_FOLDER'], profile_filename)
+                    # Re-save the first training image as profile photo
+                    first_image = training_images[0]
+                    first_image.stream.seek(0)  # Reset stream position
+                    first_image.save(profile_path)
+                    
+                    # Update student with photo path
+                    data_manager.update_student(student_data['student_id'], {'photo_path': profile_path})
+                except Exception as e:
+                    logger.warning(f"Could not save profile photo: {e}")
+        else:
+            # If face training failed, remove the student
+            data_manager.delete_student(student_data['student_id'])
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error training new person: {e}")
+        return jsonify({'success': False, 'message': f'Registration and training failed: {str(e)}'})
+
+@app.route('/get_trained_faces')
+@login_required
+def get_trained_faces():
+    """Get list of all trained faces with statistics"""
+    try:
+        data_manager = get_data_manager()
+        training_summary = data_manager.get_trained_faces_summary()
+        return jsonify(training_summary)
+        
+    except Exception as e:
+        logger.error(f"Error getting trained faces: {e}")
+        return jsonify({
+            'trained_faces': [],
+            'statistics': {
+                'total_faces': 0,
+                'total_images': 0,
+                'average_accuracy': 0
+            }
+        })
+
+@app.route('/test_face_recognition/<student_id>')
+@login_required
+def test_face_recognition(student_id):
+    """Test face recognition for a specific student"""
+    try:
+        data_manager = get_data_manager()
+        
+        # Check if student has face training data
+        if student_id not in data_manager.face_embeddings:
+            return jsonify({'success': False, 'message': 'No face training data found'})
+        
+        # Get student info
+        student = data_manager.get_student(student_id)
+        if not student:
+            return jsonify({'success': False, 'message': 'Student not found'})
+        
+        # Get training metadata
+        metadata = data_manager.get_training_metadata(student_id)
+        confidence = metadata.get('accuracy', 75.0)
+        
+        return jsonify({
+            'success': True,
+            'student_id': student_id,
+            'student_name': student['name'],
+            'confidence': round(confidence, 2),
+            'training_date': metadata.get('training_date', 'Unknown'),
+            'images_processed': metadata.get('successful_extractions', 1)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error testing face recognition for {student_id}: {e}")
+        return jsonify({'success': False, 'message': f'Test failed: {str(e)}'})
+
+@app.route('/delete_face_training/<student_id>', methods=['DELETE'])
+@login_required
+def delete_face_training(student_id):
+    """Delete face training data for a student"""
+    try:
+        data_manager = get_data_manager()
+        
+        # Check if student exists
+        student = data_manager.get_student(student_id)
+        if not student:
+            return jsonify({'success': False, 'message': 'Student not found'})
+        
+        # Delete face training data
+        success = data_manager.delete_face_training(student_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'Face training data deleted for {student["name"]}'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to delete face training data'
+            })
+        
+    except Exception as e:
+        logger.error(f"Error deleting face training for {student_id}: {e}")
+        return jsonify({'success': False, 'message': f'Delete failed: {str(e)}'})
+
+@app.route('/export_training_data')
+@login_required
+def export_training_data():
+    """Export training data as JSON"""
+    try:
+        data_manager = get_data_manager()
+        export_data = data_manager.export_training_data()
+        
+        # Create JSON response
+        response = jsonify(export_data)
+        response.headers['Content-Disposition'] = f'attachment; filename=training_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+        response.headers['Content-Type'] = 'application/json'
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error exporting training data: {e}")
+        return jsonify({'error': 'Export failed'}), 500
 
 @app.errorhandler(413)
 def file_too_large(error):

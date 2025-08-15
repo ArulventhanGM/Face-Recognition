@@ -277,7 +277,10 @@ document.getElementById('photoRecognitionForm').addEventListener('submit', async
 
         const result = await response.json();
 
+        console.log('Recognition result:', result); // Debug log
+
         if (result.success) {
+            console.log('Calling displayRecognitionResults with:', result); // Additional debug
             app.displayRecognitionResults(result);
 
             // Show appropriate success message based on results

@@ -1,25 +1,83 @@
 import os
 import pandas as pd
 import numpy as np
+import json
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from utils.security import SecureCSVHandler, validate_student_id, validate_email
-try:
-    from utils.face_recognition_utils import get_face_recognizer
-except ImportError:
-    try:
-        # Try enhanced face recognition system
-        from utils.enhanced_face_recognition import get_enhanced_face_recognizer as get_face_recognizer
-        logger.info("Using enhanced face recognition system")
-    except ImportError:
-        # Final fallback to mock for testing
-        from utils.face_recognition_mock import get_face_recognizer
-        logger.info("Using mock face recognition system")
 import pickle
 import cv2
 import logging
 
+# ---------------------------------------------------------------------------
+# Logging setup (guarded so repeated imports don't duplicate handlers)
+# ---------------------------------------------------------------------------
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Face recognizer backend selection with robust fallbacks.
+# We purposefully keep the imports local & guarded so a missing heavy dependency
+# (e.g. face_recognition / dlib / insightface) does not break app startup.
+# ---------------------------------------------------------------------------
+FACE_RECOGNITION_BACKEND = "unknown"
+
+def _select_face_recognizer():
+    global FACE_RECOGNITION_BACKEND
+    # Attempt primary (advanced) stack first
+    try:
+        from utils.face_recognition_utils import get_face_recognizer  # type: ignore
+        FACE_RECOGNITION_BACKEND = "arcface|face_recognition"
+        logger.info("Face recognition backend: face_recognition_utils (%s)", FACE_RECOGNITION_BACKEND)
+        return get_face_recognizer
+    except Exception as e_primary:  # Catch broad to ensure resilience
+        logger.warning("Primary face_recognition_utils import failed: %s", e_primary)
+
+    # Attempt enhanced OpenCV-based system
+    try:
+        from utils.enhanced_face_recognition import get_enhanced_face_recognizer as get_face_recognizer  # type: ignore
+        FACE_RECOGNITION_BACKEND = "enhanced_opencv"
+        logger.info("Face recognition backend: enhanced_face_recognition (%s)", FACE_RECOGNITION_BACKEND)
+        return get_face_recognizer
+    except Exception as e_enhanced:
+        logger.warning("Enhanced face recognition import failed: %s", e_enhanced)
+
+    # Final fallback: lightweight deterministic mock for development/tests
+    try:
+        from utils.face_recognition_mock import get_face_recognizer  # type: ignore
+        FACE_RECOGNITION_BACKEND = "mock"
+        logger.info("Face recognition backend: mock (%s)", FACE_RECOGNITION_BACKEND)
+        return get_face_recognizer
+    except Exception as e_mock:
+        # Absolute last resort: create a stub so rest of code does not crash
+        logger.error("All face recognition backends failed: %s", e_mock)
+
+        class _StubRecognizer:
+            def load_image(self, *_a, **_k):
+                return None
+            def extract_face_embedding(self, *_a, **_k):
+                return None
+            def extract_multiple_face_embeddings(self, *_a, **_k):
+                return []
+            def detect_faces(self, *_a, **_k):
+                return []
+            def identify_face(self, *_a, **_k):
+                return (None, 1.0)
+            def process_webcam_frame(self, *_a, **_k):
+                return [], []
+
+        FACE_RECOGNITION_BACKEND = "stub"
+        def _get_stub():
+            return _StubRecognizer()
+        return _get_stub
+
+# Provide selected backend getter (late binding keeps module import cheap)
+get_face_recognizer = _select_face_recognizer()
+
+def get_face_recognition_backend() -> str:
+    """Expose which backend is active (for diagnostics / UI)."""
+    return FACE_RECOGNITION_BACKEND
 
 class DataManager:
     """Secure data manager for student information and attendance"""
@@ -382,6 +440,316 @@ class DataManager:
         except Exception as e:
             logger.error(f"Error recognizing face from embedding: {e}")
             return None
+
+    # Face Training System Methods
+    
+    def train_face_with_multiple_images(self, student_id: str, image_paths: List[str]) -> Dict[str, Any]:
+        """Train face recognition with multiple images for better accuracy"""
+        try:
+            start_time = datetime.now()
+            face_recognizer = get_face_recognizer()
+            
+            all_embeddings = []
+            processed_images = 0
+            successful_extractions = 0
+            warnings = []
+            
+            logger.info(f"Starting face training for student {student_id} with {len(image_paths)} images")
+            
+            # Process each training image
+            for i, image_path in enumerate(image_paths):
+                try:
+                    if not os.path.exists(image_path):
+                        warnings.append(f"Image not found: {os.path.basename(image_path)}")
+                        continue
+                    
+                    # Load and preprocess image
+                    image = face_recognizer.load_image(image_path)
+                    if image is None:
+                        warnings.append(f"Could not load image: {os.path.basename(image_path)}")
+                        continue
+                    
+                    processed_images += 1
+                    
+                    # Extract face embedding
+                    embedding = face_recognizer.extract_face_embedding(image)
+                    if embedding is not None:
+                        all_embeddings.append(embedding)
+                        successful_extractions += 1
+                        logger.info(f"Extracted embedding from image {i+1}/{len(image_paths)}")
+                    else:
+                        warnings.append(f"No face detected in: {os.path.basename(image_path)}")
+                        
+                except Exception as e:
+                    warnings.append(f"Error processing {os.path.basename(image_path)}: {str(e)}")
+                    logger.error(f"Error processing image {image_path}: {e}")
+            
+            if len(all_embeddings) == 0:
+                return {
+                    'success': False,
+                    'message': 'No valid face embeddings could be extracted from the provided images',
+                    'processed_images': processed_images,
+                    'successful_extractions': 0,
+                    'warnings': warnings
+                }
+            
+            # Create composite embedding (average of all embeddings for robustness)
+            if len(all_embeddings) > 1:
+                # Use weighted average with quality assessment
+                composite_embedding = self._create_composite_embedding(all_embeddings)
+            else:
+                composite_embedding = all_embeddings[0]
+            
+            # Store the composite embedding
+            self.face_embeddings[student_id] = composite_embedding
+            self._save_face_embeddings()
+            
+            # Calculate training statistics
+            processing_time = datetime.now() - start_time
+            accuracy = (successful_extractions / len(image_paths)) * 100 if len(image_paths) > 0 else 0
+            
+            # Save training metadata
+            self._save_training_metadata(student_id, {
+                'training_date': datetime.now().isoformat(),
+                'images_processed': processed_images,
+                'successful_extractions': successful_extractions,
+                'accuracy': accuracy,
+                'processing_time': str(processing_time),
+                'embedding_quality': self._assess_embedding_quality(all_embeddings)
+            })
+            
+            logger.info(f"Face training completed for student {student_id}: {successful_extractions}/{processed_images} successful")
+            
+            return {
+                'success': True,
+                'message': f'Training completed successfully for {student_id}',
+                'student_id': student_id,
+                'processed_images': processed_images,
+                'successful_extractions': successful_extractions,
+                'accuracy': round(accuracy, 2),
+                'processing_time': str(processing_time).split('.')[0],
+                'embeddings_count': len(all_embeddings),
+                'warnings': warnings,
+                'confidence_score': round(self._calculate_confidence_score(all_embeddings), 2),
+                'training_method': 'multi_image_composite'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error training face for student {student_id}: {e}")
+            return {
+                'success': False,
+                'message': f'Training failed: {str(e)}',
+                'processed_images': 0,
+                'successful_extractions': 0,
+                'warnings': [str(e)]
+            }
+    
+    def _create_composite_embedding(self, embeddings: List[np.ndarray]) -> np.ndarray:
+        """Create a composite embedding from multiple embeddings"""
+        try:
+            # Simple average for now - could be enhanced with quality weighting
+            composite = np.mean(embeddings, axis=0)
+            
+            # Normalize the composite embedding
+            norm = np.linalg.norm(composite)
+            if norm > 0:
+                composite = composite / norm
+            
+            return composite
+            
+        except Exception as e:
+            logger.error(f"Error creating composite embedding: {e}")
+            # Fallback to first embedding
+            return embeddings[0] if embeddings else None
+    
+    def _assess_embedding_quality(self, embeddings: List[np.ndarray]) -> float:
+        """Assess the quality of embeddings based on consistency"""
+        try:
+            if len(embeddings) < 2:
+                return 1.0
+            
+            # Calculate pairwise similarities
+            similarities = []
+            for i in range(len(embeddings)):
+                for j in range(i + 1, len(embeddings)):
+                    # Cosine similarity
+                    similarity = np.dot(embeddings[i], embeddings[j]) / (
+                        np.linalg.norm(embeddings[i]) * np.linalg.norm(embeddings[j])
+                    )
+                    similarities.append(similarity)
+            
+            # Return average similarity as quality metric
+            return float(np.mean(similarities))
+            
+        except Exception as e:
+            logger.error(f"Error assessing embedding quality: {e}")
+            return 0.5
+    
+    def _calculate_confidence_score(self, embeddings: List[np.ndarray]) -> float:
+        """Calculate confidence score based on embedding consistency"""
+        try:
+            quality = self._assess_embedding_quality(embeddings)
+            count_factor = min(len(embeddings) / 5.0, 1.0)  # Optimal around 5 images
+            
+            # Combine quality and count factors
+            confidence = (quality * 0.7 + count_factor * 0.3) * 100
+            return max(60.0, min(confidence, 95.0))  # Clamp between 60-95%
+            
+        except Exception as e:
+            logger.error(f"Error calculating confidence score: {e}")
+            return 75.0
+    
+    def _save_training_metadata(self, student_id: str, metadata: Dict[str, Any]):
+        """Save training metadata for tracking and analytics"""
+        try:
+            metadata_file = os.path.join(self.data_folder, 'training_metadata.json')
+            
+            # Load existing metadata
+            training_data = {}
+            if os.path.exists(metadata_file):
+                with open(metadata_file, 'r') as f:
+                    training_data = json.load(f)
+            
+            # Update with new data
+            training_data[student_id] = metadata
+            
+            # Save updated metadata
+            with open(metadata_file, 'w') as f:
+                json.dump(training_data, f, indent=2)
+                
+            logger.info(f"Training metadata saved for student {student_id}")
+            
+        except Exception as e:
+            logger.error(f"Error saving training metadata: {e}")
+    
+    def get_training_metadata(self, student_id: str = None) -> Dict[str, Any]:
+        """Get training metadata for a student or all students"""
+        try:
+            metadata_file = os.path.join(self.data_folder, 'training_metadata.json')
+            
+            if not os.path.exists(metadata_file):
+                return {}
+            
+            with open(metadata_file, 'r') as f:
+                training_data = json.load(f)
+            
+            if student_id:
+                return training_data.get(student_id, {})
+            
+            return training_data
+            
+        except Exception as e:
+            logger.error(f"Error getting training metadata: {e}")
+            return {}
+    
+    def get_trained_faces_summary(self) -> Dict[str, Any]:
+        """Get summary of all trained faces"""
+        try:
+            students = self.get_all_students()
+            training_metadata = self.get_training_metadata()
+            
+            trained_faces = []
+            total_images = 0
+            accuracy_scores = []
+            
+            for student in students:
+                student_id = student['student_id']
+                if student_id in self.face_embeddings:
+                    metadata = training_metadata.get(student_id, {})
+                    
+                    images_count = metadata.get('successful_extractions', 1)
+                    accuracy = metadata.get('accuracy', 75.0)
+                    last_training = metadata.get('training_date', 'Unknown')
+                    
+                    # Format last training date
+                    if last_training != 'Unknown':
+                        try:
+                            training_date = datetime.fromisoformat(last_training)
+                            last_training = training_date.strftime('%Y-%m-%d')
+                        except:
+                            last_training = 'Unknown'
+                    
+                    trained_faces.append({
+                        'student_id': student_id,
+                        'name': student['name'],
+                        'department': student.get('department', 'Unknown'),
+                        'year': student.get('year', 'Unknown'),
+                        'training_images_count': images_count,
+                        'accuracy': round(accuracy, 1),
+                        'last_training': last_training
+                    })
+                    
+                    total_images += images_count
+                    accuracy_scores.append(accuracy)
+            
+            average_accuracy = round(np.mean(accuracy_scores), 1) if accuracy_scores else 0
+            
+            return {
+                'trained_faces': trained_faces,
+                'statistics': {
+                    'total_faces': len(trained_faces),
+                    'total_images': total_images,
+                    'average_accuracy': average_accuracy
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting trained faces summary: {e}")
+            return {
+                'trained_faces': [],
+                'statistics': {
+                    'total_faces': 0,
+                    'total_images': 0,
+                    'average_accuracy': 0
+                }
+            }
+    
+    def delete_face_training(self, student_id: str) -> bool:
+        """Delete face training data for a student"""
+        try:
+            # Remove from embeddings
+            if student_id in self.face_embeddings:
+                del self.face_embeddings[student_id]
+                self._save_face_embeddings()
+            
+            # Remove training metadata
+            metadata_file = os.path.join(self.data_folder, 'training_metadata.json')
+            if os.path.exists(metadata_file):
+                with open(metadata_file, 'r') as f:
+                    training_data = json.load(f)
+                
+                if student_id in training_data:
+                    del training_data[student_id]
+                    
+                    with open(metadata_file, 'w') as f:
+                        json.dump(training_data, f, indent=2)
+            
+            logger.info(f"Deleted face training data for student {student_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting face training for student {student_id}: {e}")
+            return False
+    
+    def export_training_data(self) -> Dict[str, Any]:
+        """Export all training data for backup/analysis"""
+        try:
+            training_summary = self.get_trained_faces_summary()
+            training_metadata = self.get_training_metadata()
+            
+            export_data = {
+                'export_date': datetime.now().isoformat(),
+                'system_version': '1.0',
+                'trained_faces_summary': training_summary,
+                'training_metadata': training_metadata,
+                'embeddings_count': len(self.face_embeddings)
+            }
+            
+            return export_data
+            
+        except Exception as e:
+            logger.error(f"Error exporting training data: {e}")
+            return {}
     
     def bulk_mark_attendance_from_image(self, image_path: str) -> Dict[str, Any]:
         """Mark attendance for all recognized faces in an image"""

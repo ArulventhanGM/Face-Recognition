@@ -136,21 +136,23 @@
                     <tr>
                         <td>
                             <img src="{{ url_for('student_photo', student_id=record.student_id) }}" 
-                                 alt="{{ record.name }}" 
+                                 alt="{{ record.get('name', 'Unknown') }}" 
                                  class="student-photo"
-                                 onerror="this.src='{{ url_for('static', filename='images/default-avatar.svg') }}';">
+                                 #onerror="this.src='{{ url_for('static', filename='images/default-avatar.svg') }}'">
                         </td>
-                        <td>{{ record.date }}</td>
-                        <td>{{ record.time }}</td>
+                        <td>{{ record.get('date', 'N/A') }}</td>
+                        <td>{{ record.get('time', 'N/A') }}</td>
                         <td>{{ record.student_id }}</td>
-                        <td>{{ record.name }}</td>
+                        <td>{{ record.get('name', 'Unknown') }}</td>
                         <td>{{ record.get('department', 'N/A') }}</td>
                         <td>{{ record.get('year', 'N/A') }}</td>
                         <td>
+                            {% if record.get('method') %}
                             <span class="badge badge-{{ 'success' if record.method == 'camera' else 'warning' }}">
                                 <i class="fas fa-{{ 'video' if record.method == 'camera' else 'image' }}"></i>
                                 {{ record.method.title() }}
                             </span>
+                            {% endif %}
                         </td>
                         <td>
                             {% if record.confidence and record.confidence != 'N/A' and record.confidence != '' %}
