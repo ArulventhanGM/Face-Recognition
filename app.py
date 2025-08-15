@@ -429,65 +429,6 @@ def recognition():
     """Face recognition page"""
     return render_template('recognition.html')
 
-@app.route('/realtime_recognition')
-@login_required
-def realtime_recognition():
-    """Real-time face recognition page"""
-    return render_template('realtime_recognition.html')
-
-@app.route('/recognize_photo', methods=['POST'])
-@login_required
-def recognize_photo():
-    """Recognize faces from uploaded photo"""
-    try:
-        if 'photo' not in request.files:
-            return jsonify({'success': False, 'message': 'No photo uploaded'})
-
-        file = request.files['photo']
-        if not file or not file.filename:
-            return jsonify({'success': False, 'message': 'No photo selected'})
-
-        # Save uploaded file
-        filepath = save_uploaded_file(file)
-        if not filepath:
-            return jsonify({'success': False, 'message': 'Invalid image file'})
-
-        try:
-            # Recognize faces
-            data_manager = get_data_manager()
-            recognition_result = data_manager.recognize_face_from_image(filepath)
-            
-            # Debug logging
-            logger.info(f"Recognition result: {recognition_result}")
-
-            if not recognition_result['success']:
-                return jsonify({
-                    'success': False,
-                    'message': recognition_result.get('error', 'Failed to process image')
-                })
-
-            # Return comprehensive results
-            return jsonify({
-                'success': True,
-                'data': recognition_result['faces_recognized'],
-                'faces_detected': recognition_result['faces_detected'],
-                'faces_recognized': len(recognition_result['faces_recognized']),
-                'faces_unrecognized': len(recognition_result['faces_unrecognized']),
-                'unrecognized_details': recognition_result['faces_unrecognized'],
-                'message': recognition_result.get('message', f'Processed {recognition_result["faces_detected"]} face(s)')
-            })
-
-        finally:
-            # Clean up uploaded file
-            try:
-                os.remove(filepath)
-            except:
-                pass
-
-    except Exception as e:
-        logger.error(f"Error recognizing photo: {e}")
-        return jsonify({'success': False, 'message': 'Failed to process photo'})
-
 @app.route('/process_photo', methods=['POST'])
 @login_required
 def process_photo():

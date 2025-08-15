@@ -1,3 +1,4 @@
 student_id,name,date,time,status,confidence,method
 1234567890,example,2025-08-15,17:05:46,Present,0.00,realtime_camera
 Arul1235659,ArulventhanGM,2025-08-15,17:07:59,Present,0.00,camera
+dharan123,Dharan,2025-08-15,17:23:22,Present,1.00,photo

@@ -56,48 +56,6 @@
         </div>
     </div>
 
-    <!-- Photo Upload Recognition -->
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">
-                <i class="fas fa-image"></i>
-                Photo-based Recognition
-            </h2>
-        </div>
-        
-        <form id="photoRecognitionForm" enctype="multipart/form-data">
-            <div class="grid grid-2">
-                <div>
-                    <div class="form-group">
-                        <label for="uploadPhoto" class="form-label">
-                            <i class="fas fa-upload"></i> Upload Photo
-                        </label>
-                        <div class="file-input-wrapper">
-                            <input type="file" id="uploadPhoto" name="photo" accept="image/*" required>
-                            <i class="fas fa-upload"></i>
-                            Select photo for recognition
-                        </div>
-                        <small class="form-text">
-                            Upload a photo containing one or more faces to recognize.
-                            Supported formats: JPG, PNG. Max size: 16MB.
-                        </small>
-                    </div>
-                    
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-search"></i> Recognize Faces
-                    </button>
-                </div>
-                
-                <div>
-                    <h4>Recognition Results</h4>
-                    <div id="recognitionResults" class="recognition-results">
-                        <p class="text-center text-muted">Upload a photo to see recognition results</p>
-                    </div>
-                </div>
-            </div>
-        </form>
-    </div>
-
     <!-- Bulk Attendance -->
     <div class="card">
         <div class="card-header">
@@ -193,34 +151,6 @@
 <script>
 // Add click handler for file upload area
 document.addEventListener('DOMContentLoaded', function() {
-    // Handle file input click for photo recognition
-    const uploadPhotoWrapper = document.querySelector('#photoRecognitionForm .file-input-wrapper');
-    const uploadPhotoInput = document.getElementById('uploadPhoto');
-    
-    if (uploadPhotoWrapper && uploadPhotoInput) {
-        uploadPhotoWrapper.addEventListener('click', function() {
-            uploadPhotoInput.click();
-        });
-        
-        // Update display when file is selected
-        uploadPhotoInput.addEventListener('change', function() {
-            const fileName = this.files[0] ? this.files[0].name : 'Select photo for recognition';
-            const iconElement = uploadPhotoWrapper.querySelector('i');
-            const textNode = uploadPhotoWrapper.childNodes[uploadPhotoWrapper.childNodes.length - 1];
-            
-            if (textNode && textNode.nodeType === Node.TEXT_NODE) {
-                textNode.textContent = fileName;
-            }
-            
-            // Change icon to indicate file selected
-            if (iconElement && this.files[0]) {
-                iconElement.className = 'fas fa-check-circle';
-                uploadPhotoWrapper.style.borderColor = '#28a745';
-                uploadPhotoWrapper.style.backgroundColor = '#d4edda';
-            }
-        });
-    }
-    
     // Handle file input click for bulk attendance
     const groupPhotoWrapper = document.querySelector('#groupPhoto').parentElement;
     const groupPhotoInput = document.getElementById('groupPhoto');
@@ -247,76 +177,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 groupPhotoWrapper.style.backgroundColor = '#fff3cd';
             }
         });
-    }
-});
-
-// Handle photo recognition form
-document.getElementById('photoRecognitionForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    
-    const formData = new FormData(this);
-    const fileInput = document.getElementById('uploadPhoto');
-    
-    if (!fileInput.files[0]) {
-        app.showAlert('Please select a photo first', 'error');
-        return;
-    }
-    
-    try {
-        app.showLoading('photoRecognitionForm');
-
-        const response = await fetch('/recognize_photo', {
-            method: 'POST',
-            body: formData
-        });
-
-        // Check if response is ok
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const result = await response.json();
-
-        console.log('Recognition result:', result); // Debug log
-
-        if (result.success) {
-            console.log('Calling displayRecognitionResults with:', result); // Additional debug
-            app.displayRecognitionResults(result);
-
-            // Show appropriate success message based on results
-            if (result.faces_detected === 0) {
-                app.showAlert('No faces detected in the uploaded image. Please try with a clearer image containing visible faces.', 'warning');
-            } else if (result.faces_recognized === 0) {
-                app.showAlert(`Detected ${result.faces_detected} face(s) but none were recognized. The faces may not be in the student database.`, 'warning');
-            } else {
-                const message = result.faces_detected === 1
-                    ? `Successfully recognized the face in the image!`
-                    : `Successfully processed ${result.faces_detected} face(s), recognized ${result.faces_recognized}`;
-                app.showAlert(message, 'success');
-            }
-        } else {
-            app.showAlert(result.message || 'Failed to recognize faces', 'error');
-        }
-    } catch (error) {
-        console.error('Error recognizing photo:', error);
-
-        // Provide more specific error messages
-        let errorMessage = 'Failed to process photo. ';
-        if (error.message.includes('HTTP 413')) {
-            errorMessage += 'File too large. Please use a smaller image.';
-        } else if (error.message.includes('HTTP 400')) {
-            errorMessage += 'Invalid image file. Please check the file format.';
-        } else if (error.message.includes('HTTP 500')) {
-            errorMessage += 'Server error. Please try again later.';
-        } else if (error.message.includes('NetworkError') || error.message.includes('fetch')) {
-            errorMessage += 'Network error. Please check your connection and try again.';
-        } else {
-            errorMessage += 'Please try again or contact support if the problem persists.';
-        }
-
-        app.showAlert(errorMessage, 'error');
-    } finally {
-        app.hideLoading('photoRecognitionForm');
     }
 });
 </script>
