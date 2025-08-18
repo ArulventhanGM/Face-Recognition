@@ -1,4 +1,5 @@
 /* Face Recognition Academic System - Modern UI */
+/* Uses modern forced-colors instead of deprecated -ms-high-contrast */
 
 :root {
     --primary-color: #3498db;
@@ -1040,5 +1041,54 @@ body {
     .training-stats {
         flex-direction: column;
         align-items: flex-start;
+    }
+}
+
+/* Modern Forced Colors Mode Support (replaces deprecated -ms-high-contrast) */
+@media (forced-colors: active) {
+    :root {
+        --primary-color: ButtonText;
+        --accent-color: ButtonFace;
+        --background-color: Canvas;
+        --text-color: CanvasText;
+        --success-color: LinkText;
+        --error-color: Mark;
+        --warning-color: Highlight;
+        --white: Canvas;
+        --shadow: none;
+        --shadow-hover: none;
+    }
+    
+    .btn, .card, .table, .form-control {
+        border: 1px solid ButtonText !important;
+        forced-color-adjust: none;
+    }
+    
+    .btn:hover, .btn:focus {
+        background-color: Highlight !important;
+        color: HighlightText !important;
+        border-color: HighlightText !important;
+    }
+    
+    .stat-card, .alert {
+        border: 2px solid ButtonText !important;
+        forced-color-adjust: none;
+    }
+    
+    /* Ensure proper contrast for interactive elements */
+    a, button, input, select, textarea {
+        forced-color-adjust: auto;
+    }
+    
+    /* Remove background images and gradients in forced colors mode */
+    .header, .btn, .card-header {
+        background-image: none !important;
+        background: ButtonFace !important;
+        color: ButtonText !important;
+    }
+    
+    /* Ensure icons remain visible */
+    .fas, .far, .fab {
+        color: ButtonText !important;
     }
 }

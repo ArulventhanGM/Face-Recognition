@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
     <title>{% block title %}Face Recognition Academic System{% endblock %}</title>
     
     <!-- CSS -->
@@ -28,7 +29,6 @@
                     <li><a href="{{ url_for('face_training') }}"><i class="fas fa-brain"></i> Face Training</a></li>
                     <li><a href="{{ url_for('attendance') }}"><i class="fas fa-calendar-check"></i> Attendance</a></li>
                     <li><a href="{{ url_for('recognition') }}"><i class="fas fa-camera"></i> Recognition</a></li>
-                    <li><a href="{{ url_for('reports') }}"><i class="fas fa-chart-bar"></i> Reports</a></li>
                 </ul>
             </nav>
             <form method="POST" action="{{ url_for('logout') }}" style="margin: 0;">
