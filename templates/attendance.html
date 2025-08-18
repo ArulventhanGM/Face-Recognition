@@ -139,7 +139,7 @@
                             <img src="{{ url_for('student_photo', student_id=record.student_id) }}" 
                                  alt="{{ record.get('name', 'Unknown') }}" 
                                  class="student-photo"
-                                 onerror="this.src='{{ url_for(&quot;static&quot;, filename=&quot;images/default-avatar.svg&quot;) }}'">
+                                 onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHJ4PSIyMCIgZmlsbD0iIzZCNzI4MCIvPjxwYXRoIGQ9Ik0yMCAyMEM5IDIwIDkgMTEgMjAgMTFTMzEgMjAgMjAgMjBaIiBmaWxsPSIjRkZGIi8+PHBhdGggZD0iTTEyIDMwQzEyIDI1LjU4NTggMTUuNTg1OCAyMiAyMCAyMlMyOCAyNS41ODU4IDI4IDMwSDE2WiIgZmlsbD0iI0ZGRiIvPjwvc3ZnPg==';">
                         </td>
                         <td>{{ record.date if record.date else 'N/A' }}</td>
                         <td>{{ record.time if record.time else 'N/A' }}</td>
