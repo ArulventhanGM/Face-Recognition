@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  face-recognition:
+    build: .
+    container_name: face-recognition-app
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    environment:
+      - FLASK_ENV=production
+      - DEBUG=False
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - face-recognition-network
+
+networks:
+  face-recognition-network:
+    driver: bridge
+
+volumes:
+  face-recognition-data:
+  face-recognition-uploads:

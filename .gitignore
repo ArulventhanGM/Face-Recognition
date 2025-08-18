@@ -51,10 +51,35 @@ ehthumbs.db
 Thumbs.db
 
 # Application specific
-uploads/
+uploads/*.jpg
+uploads/*.jpeg
+uploads/*.png
+uploads/*.gif
+uploads/*.bmp
+uploads/*.tiff
 data/face_embeddings.pkl
+data/*_backup_*.pkl
 *.log
+
+# Development and testing files
+test_*.py
+debug_*.py
+*_test.py
+*_diagnostic.py
+*_debug.py
+diagnose_*.py
+final_*.py
+simple_*.py
+migrate_*.py
+*_test.html
+*_REPORT.md
+*_GUIDE.md
+*_SUMMARY.md
+*_FEATURE.md
+requirements-basic.txt
+demo_training_data/
 
 # Temporary files
 temp/
 tmp/
+test_images/

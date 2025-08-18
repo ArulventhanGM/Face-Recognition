@@ -1,0 +1,3 @@
+# Uploads directory
+This directory stores temporary uploaded files during processing.
+Files are automatically cleaned up after processing.

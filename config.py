@@ -7,12 +7,15 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'fallback-secret-key'
     ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME') or 'admin'
     ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD') or 'admin123'
-    DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
+    DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'  # Default to False for production
     
     # File storage settings
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or 'uploads'
     DATA_FOLDER = os.environ.get('DATA_FOLDER') or 'data'
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 16777216))  # 16MB
+    
+    # Security settings
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff'}
     
     # Face recognition settings - Optimized for 90%+ accuracy
     FACE_RECOGNITION_TOLERANCE = 0.65  # Optimized threshold for enhanced backend
@@ -26,5 +29,6 @@ class Config:
     MAX_CSV_ROWS = 10000
     ALLOWED_CSV_COLUMNS = [
         'student_id', 'name', 'email', 'department', 'year',
-        'date', 'time', 'status', 'confidence'
+        'date', 'time', 'status', 'confidence', 'method',
+        'latitude', 'longitude', 'location', 'city', 'state', 'country'
     ]

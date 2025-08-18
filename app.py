@@ -118,6 +118,51 @@ def get_dashboard_stats():
     }
 
 # Routes
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring and load balancing"""
+    try:
+        # Basic system checks
+        data_manager = get_data_manager()
+        
+        # Check if core components are working
+        health_status = {
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'components': {
+                'data_manager': 'ok',
+                'face_recognition': 'ok',
+                'upload_folder': 'ok',
+                'data_folder': 'ok'
+            },
+            'system_info': {
+                'face_recognition_backend': get_face_recognition_backend(),
+                'upload_folder_exists': os.path.exists(app.config['UPLOAD_FOLDER']),
+                'data_folder_exists': os.path.exists(app.config['DATA_FOLDER'])
+            }
+        }
+        
+        # Check folders
+        if not os.path.exists(app.config['UPLOAD_FOLDER']):
+            health_status['components']['upload_folder'] = 'missing'
+        if not os.path.exists(app.config['DATA_FOLDER']):
+            health_status['components']['data_folder'] = 'missing'
+            
+        # Check if any component failed
+        failed_components = [k for k, v in health_status['components'].items() if v != 'ok']
+        if failed_components:
+            health_status['status'] = 'degraded'
+            health_status['failed_components'] = failed_components
+        
+        return jsonify(health_status), 200 if health_status['status'] == 'healthy' else 503
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'timestamp': datetime.now().isoformat(),
+            'error': str(e)
+        }), 503
+
 @app.route('/')
 def index():
     """Redirect to dashboard or login"""
