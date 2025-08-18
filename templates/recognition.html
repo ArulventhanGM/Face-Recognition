@@ -82,6 +82,21 @@
                     </small>
                 </div>
                 
+                <!-- Location Extraction Option -->
+                <div class="form-group">
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" id="extractLocation" name="extract_location" checked>
+                        <label for="extractLocation" class="checkbox-label">
+                            <i class="fas fa-map-marker-alt"></i>
+                            Extract location from geo-tagged photos
+                        </label>
+                    </div>
+                    <small class="form-text">
+                        If the uploaded photo contains GPS data, automatically extract location information 
+                        and include it in the attendance records.
+                    </small>
+                </div>
+                
                 <button type="button" id="bulkMarkBtn" class="btn btn-warning" onclick="bulkMarkAttendance()">
                     <i class="fas fa-calendar-check"></i> Mark Bulk Attendance
                 </button>
@@ -440,6 +455,115 @@ document.addEventListener('DOMContentLoaded', function() {
 
 .add-new-container .alert {
     border-left: 4px solid #ffc107;
+}
+
+/* Bulk Results Styling */
+.bulk-results-container {
+    margin-top: 1rem;
+}
+
+.location-info-section {
+    margin-bottom: 1.5rem;
+}
+
+.location-alert {
+    margin-bottom: 0;
+}
+
+.attendance-results-section {
+    margin-top: 1rem;
+}
+
+.result-section {
+    margin-bottom: 1.5rem;
+}
+
+.result-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.result-item {
+    padding: 0.75rem;
+    border-radius: 6px;
+    border-left: 4px solid;
+    background: white;
+}
+
+.success-item {
+    border-left-color: #28a745;
+    background: #f8fff9;
+}
+
+.warning-item {
+    border-left-color: #ffc107;
+    background: #fffbf0;
+}
+
+.error-item {
+    border-left-color: #dc3545;
+    background: #fff5f5;
+}
+
+.student-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+
+.confidence-badge {
+    background: #28a745;
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.location-details {
+    font-size: 0.875rem;
+    color: #666;
+    margin-top: 0.25rem;
+}
+
+.location-details i {
+    color: #007bff;
+    margin-right: 0.25rem;
+}
+
+.error-message {
+    color: #dc3545;
+    font-weight: 500;
+}
+
+/* Checkbox Styling */
+.checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 500;
+    color: #333;
+    cursor: pointer;
+    margin: 0;
+}
+
+.checkbox-wrapper input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.checkbox-label i {
+    color: #007bff;
 }
 </style>
 {% endblock %}

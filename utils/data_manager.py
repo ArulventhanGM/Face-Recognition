@@ -90,7 +90,8 @@ class DataManager:
         
         # CSV column definitions
         self.student_columns = ['student_id', 'name', 'email', 'department', 'year', 'registration_date', 'photo_path']
-        self.attendance_columns = ['student_id', 'name', 'date', 'time', 'status', 'confidence', 'method']
+        self.attendance_columns = ['student_id', 'name', 'date', 'time', 'status', 'confidence', 'method', 
+                                  'latitude', 'longitude', 'location', 'city', 'state', 'country']
         
         # In-memory storage for face embeddings
         self.face_embeddings = {}
@@ -268,8 +269,9 @@ class DataManager:
             logger.error(f"Error deleting student {student_id}: {e}")
             return False
     
-    def mark_attendance(self, student_id: str, method: str = "camera", confidence: float = 0.0) -> bool:
-        """Mark attendance for a student"""
+    def mark_attendance(self, student_id: str, method: str = "camera", confidence: float = 0.0, 
+                       location_data: Optional[Dict[str, Any]] = None) -> bool:
+        """Mark attendance for a student with optional location data"""
         try:
             student = self.get_student(student_id)
             if not student:
@@ -286,6 +288,28 @@ class DataManager:
                 'confidence': f"{confidence:.2f}",
                 'method': method
             }
+            
+            # Add location data if available
+            if location_data and location_data.get('has_location', False):
+                attendance_data.update({
+                    'latitude': str(location_data.get('latitude', '')),
+                    'longitude': str(location_data.get('longitude', '')),
+                    'location': location_data.get('address', 'Unknown Location'),
+                    'city': location_data.get('city', ''),
+                    'state': location_data.get('state', ''),
+                    'country': location_data.get('country', '')
+                })
+                logger.info(f"Added location data for {student_id}: {location_data.get('address', 'Unknown')}")
+            else:
+                # Add empty location fields
+                attendance_data.update({
+                    'latitude': '',
+                    'longitude': '',
+                    'location': 'No location data',
+                    'city': '',
+                    'state': '',
+                    'country': ''
+                })
             
             # Check if already marked today
             today_attendance = self.get_attendance_by_date(current_time.strftime('%Y-%m-%d'))
@@ -751,9 +775,21 @@ class DataManager:
             logger.error(f"Error exporting training data: {e}")
             return {}
     
-    def bulk_mark_attendance_from_image(self, image_path: str) -> Dict[str, Any]:
-        """Mark attendance for all recognized faces in an image"""
+    def bulk_mark_attendance_from_image(self, image_path: str, extract_location: bool = True) -> Dict[str, Any]:
+        """Mark attendance for all recognized faces in an image with optional location extraction"""
         try:
+            # Extract location data if requested
+            location_data = None
+            if extract_location:
+                try:
+                    from utils.geo_location import get_geo_location_extractor
+                    geo_extractor = get_geo_location_extractor()
+                    location_data = geo_extractor.extract_location_from_image(image_path)
+                    logger.info(f"Location extraction {'successful' if location_data.get('has_location') else 'failed'} for image: {image_path}")
+                except Exception as e:
+                    logger.warning(f"Location extraction failed: {e}")
+                    location_data = None
+            
             recognition_result = self.recognize_face_from_image(image_path)
 
             if not recognition_result['success']:
@@ -763,7 +799,8 @@ class DataManager:
                     'total_faces': 0,
                     'marked_attendance': [],
                     'already_marked': [],
-                    'errors': []
+                    'errors': [],
+                    'location_data': location_data
                 }
 
             recognized_faces = recognition_result['faces_recognized']
@@ -775,7 +812,8 @@ class DataManager:
                 'faces_unrecognized': len(recognition_result['faces_unrecognized']),
                 'marked_attendance': [],
                 'already_marked': [],
-                'errors': []
+                'errors': [],
+                'location_data': location_data
             }
 
             # Handle case where no faces were detected
@@ -792,15 +830,24 @@ class DataManager:
                 student_id = face['student_id']
                 confidence = face['confidence']
 
-                # Mark attendance
-                success = self.mark_attendance(student_id, method="photo", confidence=confidence)
+                # Mark attendance with location data
+                success = self.mark_attendance(student_id, method="photo", confidence=confidence, location_data=location_data)
 
                 if success:
-                    results['marked_attendance'].append({
+                    attendance_record = {
                         'student_id': student_id,
                         'name': face['name'],
                         'confidence': confidence
-                    })
+                    }
+                    
+                    # Add location info to response if available
+                    if location_data and location_data.get('has_location'):
+                        attendance_record.update({
+                            'location': location_data.get('address', 'Unknown Location'),
+                            'coordinates': f"{location_data.get('latitude', 0):.6f}, {location_data.get('longitude', 0):.6f}"
+                        })
+                    
+                    results['marked_attendance'].append(attendance_record)
                 else:
                     # Check if already marked
                     today = datetime.now().strftime('%Y-%m-%d')
@@ -824,10 +871,12 @@ class DataManager:
         except Exception as e:
             logger.error(f"Error bulk marking attendance: {e}")
             return {
+                'success': False,
                 'total_faces': 0,
                 'marked_attendance': [],
                 'already_marked': [],
-                'errors': [{'error': str(e)}]
+                'errors': [{'error': str(e)}],
+                'location_data': None
             }
     
     def export_data(self, data_type: str) -> Optional[str]:

@@ -904,6 +904,11 @@ async function bulkMarkAttendance() {
 
     const formData = new FormData();
     formData.append('photo', fileInput.files[0]);
+    
+    // Check if location extraction is enabled
+    const extractLocationCheckbox = document.getElementById('extractLocation');
+    const extractLocation = extractLocationCheckbox ? extractLocationCheckbox.checked : true;
+    formData.append('extract_location', extractLocation ? 'true' : 'false');
 
     try {
         app.showLoading('bulkMarkBtn');
@@ -921,6 +926,13 @@ async function bulkMarkAttendance() {
             message += `Marked: ${data.marked_attendance.length}, `;
             message += `Already marked: ${data.already_marked.length}, `;
             message += `Errors: ${data.errors.length}`;
+            
+            // Add location information to message if available
+            if (data.location_data && data.location_data.has_location) {
+                message += ` | Location: ${data.location_data.address}`;
+            } else if (extractLocation) {
+                message += ` | No location data found`;
+            }
             
             app.showAlert(message, 'success');
             
@@ -941,31 +953,88 @@ function displayBulkResults(data) {
     const container = document.getElementById('bulkResults');
     if (!container) return;
 
-    let html = '<h4>Bulk Attendance Results</h4>';
+    let html = '<div class="bulk-results-container">';
+    html += '<h4><i class="fas fa-chart-bar"></i> Bulk Attendance Results</h4>';
+    
+    // Location information section
+    if (data.location_data) {
+        html += '<div class="location-info-section mb-3">';
+        html += '<h5><i class="fas fa-map-marker-alt"></i> Location Information</h5>';
+        
+        if (data.location_data.has_location) {
+            html += '<div class="alert alert-info location-alert">';
+            html += `<strong>Location:</strong> ${data.location_data.address}<br>`;
+            html += `<strong>Coordinates:</strong> ${data.location_data.latitude.toFixed(6)}, ${data.location_data.longitude.toFixed(6)}`;
+            
+            if (data.location_data.city || data.location_data.state || data.location_data.country) {
+                html += '<br><strong>Details:</strong> ';
+                const details = [data.location_data.city, data.location_data.state, data.location_data.country]
+                    .filter(detail => detail && detail.trim()).join(', ');
+                html += details;
+            }
+            html += '</div>';
+        } else {
+            html += '<div class="alert alert-warning">';
+            html += '<i class="fas fa-exclamation-triangle"></i> No location data found in the uploaded image.';
+            html += '</div>';
+        }
+        html += '</div>';
+    }
+    
+    // Attendance results section
+    html += '<div class="attendance-results-section">';
     
     if (data.marked_attendance.length > 0) {
-        html += '<h5 class="text-success">Successfully Marked:</h5><ul>';
+        html += '<div class="result-section success-section">';
+        html += '<h5 class="text-success"><i class="fas fa-check-circle"></i> Successfully Marked Attendance:</h5>';
+        html += '<div class="result-list">';
         data.marked_attendance.forEach(item => {
-            html += `<li>${item.name} (${item.student_id}) - ${Math.round(item.confidence * 100)}%</li>`;
+            html += '<div class="result-item success-item">';
+            html += `<div class="student-info">`;
+            html += `<strong>${item.name}</strong> (${item.student_id})`;
+            html += `<span class="confidence-badge">${Math.round(item.confidence * 100)}%</span>`;
+            html += `</div>`;
+            
+            // Add location info for individual attendance if available
+            if (item.location && item.coordinates) {
+                html += `<div class="location-details">`;
+                html += `<small><i class="fas fa-map-pin"></i> ${item.location} (${item.coordinates})</small>`;
+                html += `</div>`;
+            }
+            html += '</div>';
         });
-        html += '</ul>';
+        html += '</div>';
+        html += '</div>';
     }
     
     if (data.already_marked.length > 0) {
-        html += '<h5 class="text-warning">Already Marked:</h5><ul>';
+        html += '<div class="result-section warning-section">';
+        html += '<h5 class="text-warning"><i class="fas fa-clock"></i> Already Marked Today:</h5>';
+        html += '<div class="result-list">';
         data.already_marked.forEach(item => {
-            html += `<li>${item.name} (${item.student_id})</li>`;
+            html += '<div class="result-item warning-item">';
+            html += `<strong>${item.name}</strong> (${item.student_id})`;
+            html += '</div>';
         });
-        html += '</ul>';
+        html += '</div>';
+        html += '</div>';
     }
     
     if (data.errors.length > 0) {
-        html += '<h5 class="text-danger">Errors:</h5><ul>';
+        html += '<div class="result-section error-section">';
+        html += '<h5 class="text-danger"><i class="fas fa-exclamation-circle"></i> Errors:</h5>';
+        html += '<div class="result-list">';
         data.errors.forEach(item => {
-            html += `<li>${item.error}</li>`;
+            html += '<div class="result-item error-item">';
+            html += `<span class="error-message">${item.error}</span>`;
+            html += '</div>';
         });
-        html += '</ul>';
+        html += '</div>';
+        html += '</div>';
     }
+    
+    html += '</div>'; // attendance-results-section
+    html += '</div>'; // bulk-results-container
     
     container.innerHTML = html;
 }

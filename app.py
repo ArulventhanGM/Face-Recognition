@@ -542,7 +542,7 @@ def mark_attendance():
 @app.route('/bulk_attendance', methods=['POST'])
 @login_required
 def bulk_attendance():
-    """Mark attendance from group photo"""
+    """Mark attendance from group photo with optional location extraction"""
     try:
         if 'photo' not in request.files:
             return jsonify({'success': False, 'message': 'No photo uploaded'})
@@ -551,20 +551,31 @@ def bulk_attendance():
         if not file or not file.filename:
             return jsonify({'success': False, 'message': 'No photo selected'})
         
+        # Check if location extraction is requested (default: True)
+        extract_location = request.form.get('extract_location', 'true').lower() == 'true'
+        
         # Save uploaded file
         filepath = save_uploaded_file(file)
         if not filepath:
             return jsonify({'success': False, 'message': 'Invalid image file'})
         
         try:
-            # Process group photo for attendance
+            # Process group photo for attendance with location extraction
             data_manager = get_data_manager()
-            results = data_manager.bulk_mark_attendance_from_image(filepath)
+            results = data_manager.bulk_mark_attendance_from_image(filepath, extract_location=extract_location)
+            
+            # Add location information to response message if available
+            message = 'Bulk attendance processing completed'
+            if results.get('location_data') and results['location_data'].get('has_location'):
+                location = results['location_data'].get('address', 'Unknown Location')
+                message += f' with location: {location}'
+            elif extract_location:
+                message += ' (no location data found in image)'
             
             return jsonify({
                 'success': True,
                 'data': results,
-                'message': 'Bulk attendance processing completed'
+                'message': message
             })
             
         finally:
