@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, abort
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -6,6 +6,7 @@ import os
 import cv2
 import numpy as np
 import base64
+import pandas as pd
 from datetime import datetime, timedelta
 import logging
 from collections import defaultdict, Counter
@@ -474,6 +475,59 @@ def recognition():
     """Face recognition page"""
     return render_template('recognition.html')
 
+@app.route('/recognize_photo', methods=['POST'])
+@login_required
+def recognize_photo():
+    """Recognize faces from uploaded photo"""
+    try:
+        if 'photo' not in request.files:
+            return jsonify({'success': False, 'message': 'No photo uploaded'})
+
+        file = request.files['photo']
+        if not file or not file.filename:
+            return jsonify({'success': False, 'message': 'No photo selected'})
+
+        # Save uploaded file
+        filepath = save_uploaded_file(file)
+        if not filepath:
+            return jsonify({'success': False, 'message': 'Invalid image file'})
+
+        try:
+            # Recognize faces
+            data_manager = get_data_manager()
+            recognition_result = data_manager.recognize_face_from_image(filepath)
+
+            # Debug logging
+            logger.info(f"Recognition result: {recognition_result}")
+
+            if not recognition_result['success']:
+                return jsonify({
+                    'success': False,
+                    'message': recognition_result.get('error', 'Failed to process image')
+                })
+
+            # Return comprehensive results
+            return jsonify({
+                'success': True,
+                'data': recognition_result['faces_recognized'],
+                'faces_detected': recognition_result['faces_detected'],
+                'faces_recognized': len(recognition_result['faces_recognized']),
+                'faces_unrecognized': len(recognition_result['faces_unrecognized']),
+                'unrecognized_details': recognition_result['faces_unrecognized'],
+                'message': recognition_result.get('message', f'Processed {recognition_result["faces_detected"]} face(s)')
+            })
+
+        finally:
+            # Clean up uploaded file
+            try:
+                os.remove(filepath)
+            except:
+                pass
+
+    except Exception as e:
+        logger.error(f"Error recognizing photo: {e}")
+        return jsonify({'success': False, 'message': 'Failed to process photo'})
+
 @app.route('/process_photo', methods=['POST'])
 @login_required
 def process_photo():
@@ -669,48 +723,104 @@ def mark_bulk_attendance():
         logger.error(f"Error marking bulk attendance: {e}")
         return jsonify({'success': False, 'message': 'Failed to mark bulk attendance'})
 
+@app.route('/test_photo/<student_id>')
+def test_photo(student_id):
+    """Test photo endpoint without authentication"""
+    return f"Test photo for student {student_id}"
+
 @app.route('/student_photo/<student_id>')
-@login_required
 def student_photo(student_id):
-    """Serve student photo"""
+    """Serve student photo with enhanced error handling"""
+    print(f"DEBUG: student_photo called with ID: {student_id}")
+    logger.info(f"Student photo request for ID: {student_id}")
     try:
         data_manager = get_data_manager()
         student = data_manager.get_student(student_id)
 
         if not student:
-            # Return default avatar
-            return redirect(url_for('static', filename='images/default-avatar.svg'))
+            logger.warning(f"Student not found: {student_id}")
+            # Serve default avatar directly instead of redirect
+            default_avatar_path = os.path.join(app.static_folder, 'images', 'default-avatar.svg')
+            if os.path.exists(default_avatar_path):
+                logger.info(f"Serving default avatar for non-existent student {student_id}")
+                return send_file(default_avatar_path, mimetype='image/svg+xml')
+            else:
+                logger.error(f"Default avatar not found at {default_avatar_path}")
+                abort(404)
 
         # Check if student has a stored photo path
         photo_path = student.get('photo_path', '')
-        if photo_path and os.path.exists(photo_path):
-            return send_file(photo_path)
+        logger.debug(f"Student {student_id} photo_path: {repr(photo_path)}")
+        
+        if photo_path and pd.notna(photo_path) and str(photo_path).strip():
+            # Convert to string and handle relative path
+            photo_path_str = str(photo_path).strip()
+            if not os.path.isabs(photo_path_str):
+                photo_path_str = os.path.join(os.getcwd(), photo_path_str)
+            
+            logger.debug(f"Checking photo path for {student_id}: {photo_path_str}")
+            
+            if os.path.exists(photo_path_str):
+                logger.info(f"Serving photo for {student_id}: {photo_path_str}")
+                return send_file(photo_path_str)
+            else:
+                logger.warning(f"Photo not found at path: {photo_path_str}")
 
-        # Fallback: Look for student photo in uploads folder
-        upload_folder = app.config['UPLOAD_FOLDER']
-
-        # Check for common image extensions with student ID
+        # Fallback 1: Look in data/photos directory
+        photos_folder = os.path.join(app.config['DATA_FOLDER'], 'photos')
+        os.makedirs(photos_folder, exist_ok=True)
+        logger.debug(f"Checking photos folder: {photos_folder}")
+        
         for ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp']:
-            fallback_path = os.path.join(upload_folder, f"{student_id}.{ext}")
-            if os.path.exists(fallback_path):
-                return send_file(fallback_path)
+            photo_file = os.path.join(photos_folder, f"{student_id}.{ext}")
+            if os.path.exists(photo_file):
+                logger.info(f"Found photo in photos folder: {photo_file}")
+                return send_file(photo_file)
 
-        # Look for timestamped files containing student_id
-        try:
-            for filename in os.listdir(upload_folder):
-                if student_id.lower() in filename.lower() and any(filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']):
-                    fallback_path = os.path.join(upload_folder, filename)
-                    if os.path.exists(fallback_path):
-                        return send_file(fallback_path)
-        except OSError:
-            pass  # Directory might not exist
+        # Fallback 2: Look for student photo in uploads folder
+        upload_folder = app.config['UPLOAD_FOLDER']
+        logger.debug(f"Checking uploads folder: {upload_folder}")
+        if os.path.exists(upload_folder):
+            # Check for common image extensions with student ID
+            for ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp']:
+                fallback_path = os.path.join(upload_folder, f"{student_id}.{ext}")
+                if os.path.exists(fallback_path):
+                    logger.info(f"Found photo in uploads: {fallback_path}")
+                    return send_file(fallback_path)
 
-        # Return default avatar if no photo found
-        return redirect(url_for('static', filename='images/default-avatar.svg'))
+            # Look for timestamped files containing student_id
+            try:
+                for filename in os.listdir(upload_folder):
+                    if (student_id.lower() in filename.lower() and 
+                        any(filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp'])):
+                        fallback_path = os.path.join(upload_folder, filename)
+                        if os.path.exists(fallback_path):
+                            logger.info(f"Found timestamped photo: {fallback_path}")
+                            return send_file(fallback_path)
+            except OSError as e:
+                logger.error(f"Error listing uploads directory: {e}")
+
+        # No photo found - serve default avatar directly
+        default_avatar_path = os.path.join(app.static_folder, 'images', 'default-avatar.svg')
+        if os.path.exists(default_avatar_path):
+            logger.info(f"No photo found for student {student_id}, serving default avatar")
+            return send_file(default_avatar_path, mimetype='image/svg+xml')
+        else:
+            # If default avatar doesn't exist, return a 404
+            logger.error(f"Default avatar not found at {default_avatar_path}")
+            abort(404)
 
     except Exception as e:
         logger.error(f"Error serving student photo for {student_id}: {e}")
-        return redirect(url_for('static', filename='images/default-avatar.svg'))
+        # Try to serve default avatar on error too
+        try:
+            default_avatar_path = os.path.join(app.static_folder, 'images', 'default-avatar.svg')
+            if os.path.exists(default_avatar_path):
+                return send_file(default_avatar_path, mimetype='image/svg+xml')
+            else:
+                abort(404)
+        except:
+            abort(404)
 
 @app.route('/attendance')
 @login_required
@@ -1105,6 +1215,277 @@ def export_training_data():
     except Exception as e:
         logger.error(f"Error exporting training data: {e}")
         return jsonify({'error': 'Export failed'}), 500
+
+@app.route('/batch_face_training', methods=['POST'])
+@login_required
+def batch_face_training():
+    """Handle batch face training with multiple images per student"""
+    try:
+        student_id = request.form.get('student_id')
+        if not student_id:
+            return jsonify({'success': False, 'message': 'Student ID is required'})
+        
+        data_manager = get_data_manager()
+        student = data_manager.get_student(student_id)
+        if not student:
+            return jsonify({'success': False, 'message': 'Student not found'})
+        
+        # Handle uploaded training images
+        training_images = request.files.getlist('training_images')
+        if not training_images or len(training_images) == 0:
+            return jsonify({'success': False, 'message': 'At least one training image is required'})
+        
+        # Save uploaded images temporarily
+        temp_paths = []
+        training_folder = os.path.join(app.config['DATA_FOLDER'], 'training_images', student_id)
+        os.makedirs(training_folder, exist_ok=True)
+        
+        for i, file in enumerate(training_images):
+            if file and allowed_file(file.filename):
+                filename = f"training_{i+1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                filepath = os.path.join(training_folder, filename)
+                file.save(filepath)
+                temp_paths.append(filepath)
+        
+        if not temp_paths:
+            return jsonify({'success': False, 'message': 'No valid images were uploaded'})
+        
+        # Train with multiple images
+        result = data_manager.train_face_with_multiple_images(student_id, temp_paths)
+        
+        # Update training statistics in response
+        if result['success']:
+            training_summary = data_manager.get_trained_faces_summary()
+            result['training_summary'] = training_summary
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in batch face training: {e}")
+        return jsonify({'success': False, 'message': f'Training failed: {str(e)}'})
+
+@app.route('/get_training_progress/<student_id>')
+@login_required
+def get_training_progress(student_id):
+    """Get training progress for a specific student"""
+    try:
+        data_manager = get_data_manager()
+        progress = data_manager.get_face_training_progress(student_id)
+        return jsonify(progress)
+        
+    except Exception as e:
+        logger.error(f"Error getting training progress: {e}")
+        return jsonify({'exists': False, 'error': str(e)})
+
+@app.route('/retrain_face/<student_id>', methods=['POST'])
+@login_required
+def retrain_face(student_id):
+    """Retrain face with additional images"""
+    try:
+        data_manager = get_data_manager()
+        student = data_manager.get_student(student_id)
+        if not student:
+            return jsonify({'success': False, 'message': 'Student not found'})
+        
+        # Get new training images
+        new_images = request.files.getlist('additional_images')
+        if not new_images:
+            return jsonify({'success': False, 'message': 'No additional images provided'})
+        
+        # Save new images
+        training_folder = os.path.join(app.config['DATA_FOLDER'], 'training_images', student_id)
+        os.makedirs(training_folder, exist_ok=True)
+        
+        temp_paths = []
+        for i, file in enumerate(new_images):
+            if file and allowed_file(file.filename):
+                filename = f"retrain_{i+1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                filepath = os.path.join(training_folder, filename)
+                file.save(filepath)
+                temp_paths.append(filepath)
+        
+        if not temp_paths:
+            return jsonify({'success': False, 'message': 'No valid images were uploaded'})
+        
+        # Get existing training images
+        existing_images = []
+        if os.path.exists(training_folder):
+            for filename in os.listdir(training_folder):
+                if filename.endswith(('.jpg', '.jpeg', '.png')):
+                    existing_images.append(os.path.join(training_folder, filename))
+        
+        # Combine existing and new images for retraining
+        all_images = existing_images + temp_paths
+        
+        # Retrain with all images
+        result = data_manager.train_face_with_multiple_images(student_id, all_images)
+        
+        if result['success']:
+            training_summary = data_manager.get_trained_faces_summary()
+            result['training_summary'] = training_summary
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in face retraining: {e}")
+        return jsonify({'success': False, 'message': f'Retraining failed: {str(e)}'})
+
+@app.route('/bulk_train_all', methods=['POST'])
+@login_required
+def bulk_train_all():
+    """Bulk train faces for multiple students"""
+    try:
+        # This endpoint expects a JSON payload with student_id -> image_paths mapping
+        training_data = request.get_json()
+        if not training_data:
+            return jsonify({'success': False, 'message': 'No training data provided'})
+        
+        data_manager = get_data_manager()
+        result = data_manager.bulk_train_faces(training_data)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in bulk training: {e}")
+        return jsonify({'success': False, 'message': f'Bulk training failed: {str(e)}'})
+
+@app.route('/get_training_statistics')
+@login_required
+def get_training_statistics():
+    """Get comprehensive training statistics"""
+    try:
+        data_manager = get_data_manager()
+        training_summary = data_manager.get_trained_faces_summary()
+        
+        # Add additional statistics
+        students = data_manager.get_all_students()
+        total_students = len(students)
+        trained_students = training_summary['statistics']['total_faces']
+        untrained_students = total_students - trained_students
+        
+        enhanced_stats = {
+            **training_summary,
+            'additional_stats': {
+                'total_students': total_students,
+                'trained_students': trained_students,
+                'untrained_students': untrained_students,
+                'training_completion_rate': round((trained_students / total_students * 100) if total_students > 0 else 0, 1)
+            }
+        }
+        
+        return jsonify(enhanced_stats)
+        
+    except Exception as e:
+        logger.error(f"Error getting training statistics: {e}")
+        return jsonify({'error': str(e)})
+
+@app.route('/clear_all_training', methods=['POST'])
+@login_required
+def clear_all_training():
+    """Clear all face training data (admin only)"""
+    try:
+        data_manager = get_data_manager()
+        
+        # Clear all face embeddings
+        data_manager.face_embeddings.clear()
+        data_manager._save_face_embeddings()
+        
+        # Clear training metadata
+        data_manager._save_training_metadata({})
+        
+        # Remove training images directories
+        training_base_dir = os.path.join(app.config['DATA_FOLDER'], 'training_images')
+        if os.path.exists(training_base_dir):
+            import shutil
+            shutil.rmtree(training_base_dir)
+        
+        return jsonify({'success': True, 'message': 'All training data cleared successfully'})
+        
+    except Exception as e:
+        logger.error(f"Error clearing training data: {e}")
+        return jsonify({'success': False, 'message': f'Failed to clear training data: {str(e)}'})
+
+@app.route('/validate_training_images', methods=['POST'])
+@login_required
+def validate_training_images():
+    """Validate uploaded training images before processing"""
+    try:
+        images = request.files.getlist('images')
+        if not images:
+            return jsonify({'success': False, 'message': 'No images provided'})
+        
+        face_recognizer = get_face_recognizer()
+        validation_results = []
+        
+        for i, file in enumerate(images):
+            if not file or not allowed_file(file.filename):
+                validation_results.append({
+                    'index': i,
+                    'filename': file.filename if file else 'Unknown',
+                    'valid': False,
+                    'error': 'Invalid file type'
+                })
+                continue
+            
+            try:
+                # Save temporarily for validation
+                temp_filename = f"temp_validation_{i}.jpg"
+                temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
+                file.save(temp_path)
+                
+                # Load and check for faces
+                image = face_recognizer.load_image(temp_path)
+                if image is None:
+                    validation_results.append({
+                        'index': i,
+                        'filename': file.filename,
+                        'valid': False,
+                        'error': 'Could not load image'
+                    })
+                else:
+                    embedding = face_recognizer.extract_face_embedding(image)
+                    if embedding is not None:
+                        validation_results.append({
+                            'index': i,
+                            'filename': file.filename,
+                            'valid': True,
+                            'message': 'Face detected successfully'
+                        })
+                    else:
+                        validation_results.append({
+                            'index': i,
+                            'filename': file.filename,
+                            'valid': False,
+                            'error': 'No face detected in image'
+                        })
+                
+                # Clean up temp file
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                    
+            except Exception as e:
+                validation_results.append({
+                    'index': i,
+                    'filename': file.filename,
+                    'valid': False,
+                    'error': f'Validation error: {str(e)}'
+                })
+        
+        valid_count = sum(1 for result in validation_results if result['valid'])
+        
+        return jsonify({
+            'success': True,
+            'results': validation_results,
+            'summary': {
+                'total': len(images),
+                'valid': valid_count,
+                'invalid': len(images) - valid_count
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error validating training images: {e}")
+        return jsonify({'success': False, 'message': f'Validation failed: {str(e)}'})
 
 @app.errorhandler(413)
 def file_too_large(error):

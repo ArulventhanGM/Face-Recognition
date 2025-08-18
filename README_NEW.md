@@ -199,18 +199,6 @@ Face-Recognition/
 - Ensure camera is not in use by other applications
 - Try refreshing the page
 
-**Student photos not displaying:**
-- Photos will show default avatar if no photo is available
-- Check that student photos are properly uploaded during registration
-- System automatically falls back to default avatar for missing photos
-- Photos are stored in `data/photos/` directory for permanent storage
-
-**Face recognition accuracy issues:**
-- Use the Face Training feature with multiple photos per student
-- Ensure good lighting conditions
-- Upload clear, front-facing photos
-- Retrain the system after adding new students
-
 **Poor recognition accuracy:**
 - Use face training feature with multiple photos
 - Ensure good lighting conditions

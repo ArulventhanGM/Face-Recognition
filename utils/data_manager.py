@@ -892,6 +892,193 @@ class DataManager:
             logger.error(f"Error exporting data: {e}")
             return None
 
+    def train_face_with_multiple_images(self, student_id: str, image_paths: List[str]) -> Dict[str, Any]:
+        """Train face recognition with multiple images for better accuracy"""
+        try:
+            student = self.get_student(student_id)
+            if not student:
+                return {'success': False, 'message': 'Student not found'}
+
+            face_recognizer = get_face_recognizer()
+            embeddings = []
+            successful_extractions = 0
+            failed_extractions = 0
+            training_details = []
+
+            for image_path in image_paths:
+                try:
+                    if not os.path.exists(image_path):
+                        failed_extractions += 1
+                        training_details.append({
+                            'image_path': image_path,
+                            'status': 'failed',
+                            'error': 'File not found'
+                        })
+                        continue
+
+                    image = face_recognizer.load_image(image_path)
+                    if image is None:
+                        failed_extractions += 1
+                        training_details.append({
+                            'image_path': image_path,
+                            'status': 'failed',
+                            'error': 'Could not load image'
+                        })
+                        continue
+
+                    embedding = face_recognizer.extract_face_embedding(image)
+                    if embedding is not None:
+                        embeddings.append(embedding)
+                        successful_extractions += 1
+                        training_details.append({
+                            'image_path': image_path,
+                            'status': 'success',
+                            'embedding_shape': embedding.shape if hasattr(embedding, 'shape') else 'N/A'
+                        })
+                    else:
+                        failed_extractions += 1
+                        training_details.append({
+                            'image_path': image_path,
+                            'status': 'failed',
+                            'error': 'No face detected or embedding extraction failed'
+                        })
+
+                except Exception as e:
+                    failed_extractions += 1
+                    training_details.append({
+                        'image_path': image_path,
+                        'status': 'failed',
+                        'error': str(e)
+                    })
+
+            if not embeddings:
+                return {
+                    'success': False,
+                    'message': 'No valid face embeddings extracted from provided images',
+                    'details': training_details,
+                    'stats': {
+                        'successful': successful_extractions,
+                        'failed': failed_extractions,
+                        'total': len(image_paths)
+                    }
+                }
+
+            # Average multiple embeddings for better representation
+            if len(embeddings) == 1:
+                final_embedding = embeddings[0]
+            else:
+                # Stack embeddings and compute mean
+                import numpy as np
+                stacked_embeddings = np.array(embeddings)
+                final_embedding = np.mean(stacked_embeddings, axis=0)
+
+            # Store the final embedding
+            self.face_embeddings[student_id] = final_embedding
+
+            # Save training metadata
+            training_metadata = self.get_training_metadata()
+            accuracy_estimate = min(95.0, 75.0 + (successful_extractions - 1) * 5.0)  # Estimate based on image count
+            
+            training_metadata[student_id] = {
+                'training_date': datetime.now().isoformat(),
+                'images_processed': len(image_paths),
+                'successful_extractions': successful_extractions,
+                'failed_extractions': failed_extractions,
+                'accuracy': accuracy_estimate,
+                'embedding_method': 'multi_image_average' if len(embeddings) > 1 else 'single_image',
+                'details': training_details
+            }
+            
+            self._save_training_metadata(training_metadata)
+            self._save_face_embeddings()
+
+            logger.info(f"Face training completed for student {student_id}: {successful_extractions}/{len(image_paths)} successful")
+            
+            return {
+                'success': True,
+                'message': f'Training completed: {successful_extractions}/{len(image_paths)} images processed successfully',
+                'details': training_details,
+                'stats': {
+                    'successful': successful_extractions,
+                    'failed': failed_extractions,
+                    'total': len(image_paths),
+                    'accuracy_estimate': accuracy_estimate
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Error training face with multiple images for {student_id}: {e}")
+            return {'success': False, 'message': f'Training failed: {str(e)}'}
+
+    def get_face_training_progress(self, student_id: str) -> Dict[str, Any]:
+        """Get detailed training progress for a specific student"""
+        try:
+            training_metadata = self.get_training_metadata()
+            student_metadata = training_metadata.get(student_id, {})
+            
+            if not student_metadata:
+                return {'exists': False}
+
+            return {
+                'exists': True,
+                'training_date': student_metadata.get('training_date'),
+                'images_processed': student_metadata.get('images_processed', 0),
+                'successful_extractions': student_metadata.get('successful_extractions', 0),
+                'failed_extractions': student_metadata.get('failed_extractions', 0),
+                'accuracy': student_metadata.get('accuracy', 0),
+                'embedding_method': student_metadata.get('embedding_method', 'unknown'),
+                'details': student_metadata.get('details', [])
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting training progress for {student_id}: {e}")
+            return {'exists': False, 'error': str(e)}
+
+    def delete_face_training(self, student_id: str) -> bool:
+        """Delete face training data for a specific student"""
+        try:
+            # Remove from face embeddings
+            if student_id in self.face_embeddings:
+                del self.face_embeddings[student_id]
+                self._save_face_embeddings()
+
+            # Remove from training metadata
+            training_metadata = self.get_training_metadata()
+            if student_id in training_metadata:
+                del training_metadata[student_id]
+                self._save_training_metadata(training_metadata)
+
+            logger.info(f"Face training data deleted for student {student_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error deleting face training for {student_id}: {e}")
+            return False
+
+    def bulk_train_faces(self, training_data: Dict[str, List[str]]) -> Dict[str, Any]:
+        """Train multiple faces in bulk"""
+        results = {}
+        total_success = 0
+        total_failed = 0
+
+        for student_id, image_paths in training_data.items():
+            result = self.train_face_with_multiple_images(student_id, image_paths)
+            results[student_id] = result
+            
+            if result['success']:
+                total_success += 1
+            else:
+                total_failed += 1
+
+        return {
+            'results': results,
+            'summary': {
+                'total_students': len(training_data),
+                'successful': total_success,
+                'failed': total_failed
+            }
+        }
+
 # Global instance
 data_manager = DataManager()
 
