@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: face-recognition-system
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn --bind 0.0.0.0:$PORT app:app"
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: FLASK_ENV
+        value: production
+      - key: UPLOAD_FOLDER
+        value: uploads
+      - key: DATA_FOLDER
+        value: data
+      - key: MAX_CONTENT_LENGTH
+        value: "16777216"

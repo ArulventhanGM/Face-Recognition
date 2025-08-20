@@ -1492,5 +1492,12 @@ def file_too_large(error):
     flash('File too large. Maximum size is 16MB.', 'error')
     return redirect(request.url)
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint for Render"""
+    return {'status': 'healthy', 'timestamp': datetime.now().isoformat()}, 200
+
 if __name__ == '__main__':
-    app.run(debug=app.config['DEBUG'], host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    debug_mode = os.environ.get('DEBUG', 'False').lower() == 'true'
+    app.run(debug=debug_mode, host='0.0.0.0', port=port)
