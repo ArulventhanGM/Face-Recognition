@@ -16,6 +16,16 @@ from utils.data_manager import get_data_manager, get_face_recognizer
 from utils.security import sanitize_filename, validate_student_id, validate_email
 from utils.data_manager import get_face_recognition_backend
 
+# Advanced ML face recognition system
+try:
+    from utils.advanced_integration import get_advanced_face_recognizer
+    from utils.advanced_training_routes import register_advanced_training_routes
+    ADVANCED_TRAINING_AVAILABLE = True
+    logger.info("Advanced ML face recognition system available")
+except ImportError as e:
+    logger.warning(f"Advanced ML system not available: {e}")
+    ADVANCED_TRAINING_AVAILABLE = False
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,6 +43,15 @@ login_manager.login_message_category = 'error'
 # Create necessary directories
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['DATA_FOLDER'], exist_ok=True)
+
+# Register advanced training routes if available
+if ADVANCED_TRAINING_AVAILABLE:
+    try:
+        register_advanced_training_routes(app)
+        logger.info("Advanced training routes registered successfully")
+    except Exception as e:
+        logger.error(f"Failed to register advanced training routes: {e}")
+        ADVANCED_TRAINING_AVAILABLE = False
 
 # Simple User class for admin authentication
 class User(UserMixin):
