@@ -1,4 +1,4 @@
-student_id,name,date,time,status,confidence,method
+student_id,name,date,time,status,confidence,method,latitude,longitude,location,city,state,country
 1234567890,example,2025-08-15,17:05:46,Present,0.00,realtime_camera
 Arul1235659,ArulventhanGM,2025-08-15,17:07:59,Present,0.00,camera
 dharan123,Dharan,2025-08-15,17:23:22,Present,1.00,photo
@@ -24,3 +24,30 @@ janarathanan56,Janarthanan,2025-08-18,16:11:40,Present,0.81,photo
 janarathanan56,Janarthanan,2025-08-20,13:59:24,Present,0.85,photo,,,No location data,,,
 mohammed123,Mohammed Suhail,2025-08-20,14:00:47,Present,1.00,photo,,,No location data,,,
 12345678905659,Arulventhan,2025-08-20,14:00:47,Present,0.78,photo,,,No location data,,,
+23EIR001,Abdul Rahman,2025-08-20,16:20:36,Present,0.84,photo,,,No location data,,,
+23EIR001,Abdul Rahman,2025-08-20,16:21:45,Present,0.84,photo,,,No location data,,,
+23EIR001,Abdul Rahman,2025-08-20,16:22:16,Present,0.84,photo,,,No location data,,,
+23EIR054,Lokeshkumar S,2025-08-20,16:22:16,Present,0.83,photo,,,No location data,,,
+23EIR001,Abdul Rahman,2025-08-20,16:22:16,Present,1.00,photo,,,No location data,,,
+23EIR054,Lokeshkumar S,2025-08-20,16:22:57,Present,0.85,photo,,,No location data,,,
+23EIR054,Lokeshkumar S,2025-08-20,16:22:57,Present,0.83,photo,,,No location data,,,
+23EIR054,Lokeshkumar S,2025-08-20,16:22:57,Present,0.80,photo,,,No location data,,,
+23EIR023,Dharshini K S,2025-08-20,16:22:57,Present,1.00,photo,,,No location data,,,
+23EIR023,Dharshini K S,2025-08-20,16:22:58,Present,0.85,photo,,,No location data,,,
+12345678905659,Arulventhan,2025-08-20,16:22:58,Present,0.82,photo,,,No location data,,,
+23EIR023,Dharshini K S,2025-08-20,16:22:58,Present,0.85,photo,,,No location data,,,
+23EIR023,Dharshini K S,2025-08-20,16:22:58,Present,0.87,photo,,,No location data,,,
+12345678905659,Arulventhan,2025-08-20,16:22:58,Present,0.79,photo,,,No location data,,,
+23EIR054,Lokeshkumar S,2025-08-20,16:23:18,Present,0.85,photo,,,No location data,,,
+23EIR054,Lokeshkumar S,2025-08-20,16:23:18,Present,0.83,photo,,,No location data,,,
+23EIR054,Lokeshkumar S,2025-08-20,16:23:18,Present,0.80,photo,,,No location data,,,
+23EIR023,Dharshini K S,2025-08-20,16:23:18,Present,1.00,photo,,,No location data,,,
+23EIR023,Dharshini K S,2025-08-20,16:23:18,Present,0.85,photo,,,No location data,,,
+12345678905659,Arulventhan,2025-08-20,16:23:18,Present,0.82,photo,,,No location data,,,
+23EIR023,Dharshini K S,2025-08-20,16:23:18,Present,0.85,photo,,,No location data,,,
+23EIR023,Dharshini K S,2025-08-20,16:23:18,Present,0.87,photo,,,No location data,,,
+12345678905659,Arulventhan,2025-08-20,16:23:18,Present,0.79,photo,,,No location data,,,
+23EIR023,Dharshini K S,2025-08-20,16:24:44,Present,0.85,photo,,,No location data,,,
+23EIR001,Abdul Rahman,2025-08-20,16:24:44,Present,0.81,photo,,,No location data,,,
+23EIR023,Dharshini K S,2025-08-20,16:24:44,Present,0.85,photo,,,No location data,,,
+23EIR054,Lokeshkumar S,2025-08-20,16:24:44,Present,0.83,photo,,,No location data,,,

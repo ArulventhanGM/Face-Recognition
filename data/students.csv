@@ -1,4 +1,7 @@
 student_id,name,email,department,year,registration_date,photo_path
-12345678905659,Arulventhan,alkhfhaetfhalskdj@gmail.com,Engineering,3,2025-08-18 15:43:53,uploads\20250818_154519_WIN_20250731_22_29_29_Pro.jpg
-janarathanan56,Janarthanan,janarathan@gmail.com,Engineering,4,2025-08-18 15:47:25,uploads\20250818_154725_SIr_TESTIMge.jpg
-mohammed123,Mohammed Suhail,mohammedsuhailf.23eie@kongu.edu,Engineering,4,2025-08-20 13:58:38,uploads\20250820_135838_WhatsApp_Image_2025-08-20_at_13.52.32_5c3af3d0.jpg
+12345678905659,Arulventhan,alkhfhaetfhalskdj@gmail.com,Electronics and Instrumentation Engineering,3,2025-08-18 15:43:53,uploads\20250818_154519_WIN_20250731_22_29_29_Pro.jpg
+janarathanan56,Janarthanan,janarathan@gmail.com,Electronics and Instrumentation Engineering,4,2025-08-18 15:47:25,uploads\20250818_154725_SIr_TESTIMge.jpg
+23EIR054,Lokeshkumar S,lokeshkumars.23eie@kongu.edu,Electronics and Instrumentation Engineering,3,2025-08-20 16:04:11,uploads\20250820_160411_61_-_LOKESH_KUMAR_S_23EIR054.jpg
+23EIR023,Dharshini K S,dharshinis.23eie@kongu.edu,Electronics and Instrumentation Engineering,3,2025-08-20 16:15:42,uploads\20250820_161832_IMG_8219_-_Dharshini_Kumar.JPG
+23EIR008,Aswin Sampath Kumar,aswinsampathkumar.23eie@kongu.edu,Electronics and Instrumentation Engineering,3,2025-08-20 21:52:46,uploads\20250820_215246_background-replacer-result_2_-_ASWIN_SAMPATH_KUMAR_23EIR008.png
+23EIL119,Moohith S,moohiths.23eie@kongu.edu,Electronics and Instrumentation Engineering,3,2025-08-20 21:54:05,uploads\20250820_215405_IMG_20250723_214311_-_MOOHITH_S_23EIL119.jpg
