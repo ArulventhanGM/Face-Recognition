@@ -3,6 +3,8 @@
 {% block title %}Asset-Based Face Recognition Training{% endblock %}
 
 {% block extra_head %}
+<!-- Toastr CSS -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css">
 <style>
     .training-container {
         max-width: 1200px;
@@ -182,22 +184,29 @@
                 <i class="fas fa-brain"></i> Asset-Based Face Recognition Training
             </h1>
             
+            <!-- Hidden data for JavaScript -->
+            <div id="template-data" 
+                 data-is-training="{{ 'true' if training_status and training_status.is_training else 'false' }}"
+                 data-training-progress="{{ training_status.progress|default(0) if training_status else 0 }}"
+                 data-current-step="{{ training_status.current_step|default('Ready')|e if training_status else 'Ready' }}"
+                 style="display: none;"></div>
+            
             <!-- Training Status Card -->
             <div class="training-card status-card">
                 <h3><i class="fas fa-chart-line"></i> Training Status</h3>
                 <div id="training-status">
-                    {% if training_status.is_training %}
+                    {% if training_status and training_status.is_training %}
                         <div class="d-flex align-items-center mb-3">
                             <div class="spinner"></div>
                             <span>Training in progress...</span>
                         </div>
                         <div class="progress-container">
                             <div class="progress">
-                                <div class="progress-bar" style="width: {{ training_status.progress }}%">
-                                    {{ training_status.progress }}%
+                                <div class="progress-bar" data-progress="{{ training_status.progress|default(0) }}">
+                                    {{ training_status.progress|default(0) }}%
                                 </div>
                             </div>
-                            <small class="mt-2 d-block">{{ training_status.current_step }}</small>
+                            <small class="mt-2 d-block">{{ training_status.current_step|default('Preparing...') }}</small>
                         </div>
                     {% else %}
                         <p><i class="fas fa-info-circle"></i> Ready to start training with asset images</p>
@@ -340,6 +349,9 @@
 {% endblock %}
 
 {% block extra_js %}
+<!-- Toastr JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
+
 <script>
 let trainingInterval = null;
 let selectedTestFile = null;
@@ -348,10 +360,19 @@ $(document).ready(function() {
     // Initialize page
     loadTrainingSummary();
     
+    // Set initial progress bar width from template data
+    const progressBar = document.querySelector('.progress-bar[data-progress]');
+    if (progressBar) {
+        const progress = progressBar.getAttribute('data-progress') || 0;
+        progressBar.style.width = progress + '%';
+    }
+    
     // Check if training is in progress
-    {% if training_status and training_status.is_training %}
-    startStatusPolling();
-    {% endif %}
+    const templateData = document.getElementById('template-data');
+    const isTraining = templateData ? templateData.dataset.isTraining === 'true' : false;
+    if (isTraining) {
+        startStatusPolling();
+    }
     
     // Event listeners
     $('#start-training-btn').click(startAssetTraining);
