@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Flask Connection</title>
+</head>
+<body>
+    <h1>Testing Flask App</h1>
+    <p>If you can see this, the Flask app is running.</p>
+    <div>
+        <h2>Test Links:</h2>
+        <ul>
+            <li><a href="http://127.0.0.1:5000/">Main Page</a></li>
+            <li><a href="http://127.0.0.1:5000/health">Health Check</a></li>
+            <li><a href="http://127.0.0.1:5000/test">Test Route</a></li>
+            <li><a href="http://127.0.0.1:5000/login">Login Page</a></li>
+            <li><a href="http://127.0.0.1:5000/debug-dashboard">Debug Dashboard</a></li>
+            <li><a href="http://127.0.0.1:5000/asset-training/improved">🔥 Improved Asset Training (Recommended)</a></li>
+            <li><a href="http://127.0.0.1:5000/asset-training/simple">Simple Asset Training</a></li>
+            <li><a href="http://127.0.0.1:5000/asset-training/debug">Asset Training Debug</a></li>
+            <li><a href="http://127.0.0.1:5000/asset-training/">Full Asset Training</a></li>
+        </ul>
+    </div>
+    
+    <div>
+        <h2>Quick Login Test:</h2>
+        <form action="http://127.0.0.1:5000/login" method="post">
+            <p>Username: <input type="text" name="username" value="admin"></p>
+            <p>Password: <input type="password" name="password" value="admin123"></p>
+            <p><input type="submit" value="Login"></p>
+        </form>
+    </div>
+</body>
+</html>

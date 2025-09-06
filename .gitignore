@@ -60,6 +60,7 @@ uploads/*.tiff
 data/face_embeddings.pkl
 data/*_backup_*.pkl
 *.log
+assets/*.jpg
 
 # Development and testing files
 test_*.py
@@ -71,6 +72,8 @@ diagnose_*.py
 final_*.py
 simple_*.py
 migrate_*.py
+fix_*.py
+verify_*.py
 *_test.html
 *_REPORT.md
 *_GUIDE.md
@@ -83,3 +86,13 @@ demo_training_data/
 temp/
 tmp/
 test_images/
+*_temp.csv
+*_backup.csv
+*_fixed.csv
+
+# Large asset datasets (for training purposes only)
+assets/
+assets/**
+*.dataset
+training_datasets/
+face_datasets/

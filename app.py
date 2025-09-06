@@ -15,16 +15,7 @@ from config import Config
 from utils.data_manager import get_data_manager, get_face_recognizer
 from utils.security import sanitize_filename, validate_student_id, validate_email
 from utils.data_manager import get_face_recognition_backend
-
-# Advanced ML face recognition system
-try:
-    from utils.advanced_integration import get_advanced_face_recognizer
-    from utils.advanced_training_routes import register_advanced_training_routes
-    ADVANCED_TRAINING_AVAILABLE = True
-    logger.info("Advanced ML face recognition system available")
-except ImportError as e:
-    logger.warning(f"Advanced ML system not available: {e}")
-    ADVANCED_TRAINING_AVAILABLE = False
+from utils.asset_training_routes import asset_training_bp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -44,14 +35,8 @@ login_manager.login_message_category = 'error'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['DATA_FOLDER'], exist_ok=True)
 
-# Register advanced training routes if available
-if ADVANCED_TRAINING_AVAILABLE:
-    try:
-        register_advanced_training_routes(app)
-        logger.info("Advanced training routes registered successfully")
-    except Exception as e:
-        logger.error(f"Failed to register advanced training routes: {e}")
-        ADVANCED_TRAINING_AVAILABLE = False
+# Register blueprints
+app.register_blueprint(asset_training_bp)
 
 # Simple User class for admin authentication
 class User(UserMixin):
@@ -138,6 +123,19 @@ def get_dashboard_stats():
     }
 
 # Routes
+@app.route('/test')
+def test_route():
+    """Simple test route that doesn't require authentication"""
+    return """
+    <h1>Flask App is Working!</h1>
+    <p>This test route confirms the Flask application is running properly.</p>
+    <ul>
+        <li><a href="/health">Health Check</a></li>
+        <li><a href="/login">Login Page</a></li>
+        <li><a href="/debug-dashboard">Debug Dashboard (requires login)</a></li>
+    </ul>
+    """
+
 @app.route('/health')
 def health_check():
     """Health check endpoint for monitoring and load balancing"""
@@ -222,22 +220,56 @@ def logout():
     flash('You have been logged out', 'info')
     return redirect(url_for('login'))
 
+@app.route('/debug-dashboard')
+@login_required
+def debug_dashboard():
+    """Debug version of dashboard with error handling"""
+    try:
+        stats = get_dashboard_stats()
+        
+        # Get recent attendance (last 10 records)
+        data_manager = get_data_manager()
+        all_attendance = data_manager.get_all_attendance()
+        recent_attendance = sorted(all_attendance, 
+                                 key=lambda x: f"{x['date']} {x['time']}", 
+                                 reverse=True)[:10]
+        
+        return f"""
+        <h1>Debug Dashboard</h1>
+        <h2>Stats:</h2>
+        <ul>
+            <li>Total Students: {stats['total_students']}</li>
+            <li>Today's Attendance: {stats['total_attendance_today']}</li>
+            <li>This Week: {stats['total_attendance_week']}</li>
+            <li>This Month: {stats['total_attendance_month']}</li>
+        </ul>
+        <h2>Recent Attendance Count: {len(recent_attendance)}</h2>
+        <p>Debug successful! Template error likely.</p>
+        """
+        
+    except Exception as e:
+        return f"Dashboard error: {str(e)}"
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
     """Admin dashboard"""
-    stats = get_dashboard_stats()
-    
-    # Get recent attendance (last 10 records)
-    data_manager = get_data_manager()
-    all_attendance = data_manager.get_all_attendance()
-    recent_attendance = sorted(all_attendance, 
-                             key=lambda x: f"{x['date']} {x['time']}", 
-                             reverse=True)[:10]
-    
-    return render_template('dashboard.html', 
-                         stats=stats, 
-                         recent_attendance=recent_attendance)
+    try:
+        stats = get_dashboard_stats()
+        
+        # Get recent attendance (last 10 records)
+        data_manager = get_data_manager()
+        all_attendance = data_manager.get_all_attendance()
+        recent_attendance = sorted(all_attendance, 
+                                 key=lambda x: f"{x['date']} {x['time']}", 
+                                 reverse=True)[:10]
+        
+        return render_template('dashboard_new.html', 
+                             stats=stats, 
+                             recent_attendance=recent_attendance)
+    except Exception as e:
+        logger.error(f"Dashboard error: {e}")
+        return f"Dashboard error: {str(e)}", 500
 
 @app.route('/diagnostics')
 @login_required
@@ -1512,6 +1544,4 @@ def file_too_large(error):
     return redirect(request.url)
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    debug_mode = os.environ.get('DEBUG', 'False').lower() == 'true'
-    app.run(debug=debug_mode, host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0', port=5000)
