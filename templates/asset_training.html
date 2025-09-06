@@ -277,14 +277,66 @@
                 
                 <div class="alert alert-info">
                     <i class="fas fa-info-circle"></i>
-                    <strong>Training Process:</strong>
+                    <strong>Advanced Training Technologies:</strong>
                     <ol class="mb-0 mt-2">
-                        <li>Process and extract face encodings from asset images</li>
-                        <li>Include existing student face data</li>
-                        <li>Train advanced ML models (SVM, Random Forest, KNN)</li>
-                        <li>Select best performing model</li>
-                        <li>Test model accuracy and save for production use</li>
+                        <li><strong>Detection:</strong> MTCNN + Custom CNN for robust face detection</li>
+                        <li><strong>Recognition:</strong> Custom CNN with ArcFace loss for superior embeddings</li>
+                        <li><strong>Matching:</strong> Ensemble of Cosine Similarity, Euclidean Distance & SVM</li>
+                        <li><strong>Training:</strong> Advanced ML models (SVM, Random Forest, KNN)</li>
+                        <li><strong>Optimization:</strong> Grid search hyperparameter tuning</li>
+                        <li><strong>Validation:</strong> Cross-validation and comprehensive accuracy testing</li>
                     </ol>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-md-4">
+                        <div class="card border-primary">
+                            <div class="card-header bg-primary text-white">
+                                <i class="fas fa-search"></i> Detection Method
+                            </div>
+                            <div class="card-body">
+                                <select id="detection-method" class="form-control">
+                                    <option value="mtcnn">MTCNN (Recommended)</option>
+                                    <option value="custom_cnn">Custom CNN</option>
+                                    <option value="ensemble">Ensemble (Both)</option>
+                                </select>
+                                <small class="text-muted">Choose face detection algorithm</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <div class="card border-success">
+                            <div class="card-header bg-success text-white">
+                                <i class="fas fa-brain"></i> Recognition Model
+                            </div>
+                            <div class="card-body">
+                                <select id="recognition-model" class="form-control">
+                                    <option value="arcface">ArcFace + Custom CNN</option>
+                                    <option value="facenet">FaceNet</option>
+                                    <option value="insightface">InsightFace</option>
+                                </select>
+                                <small class="text-muted">Choose recognition architecture</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <div class="card border-warning">
+                            <div class="card-header bg-warning text-white">
+                                <i class="fas fa-chart-line"></i> Matching Algorithm
+                            </div>
+                            <div class="card-body">
+                                <select id="matching-algorithm" class="form-control">
+                                    <option value="ensemble">Ensemble (Recommended)</option>
+                                    <option value="cosine_similarity">Cosine Similarity</option>
+                                    <option value="euclidean_distance">Euclidean Distance</option>
+                                    <option value="svm_classifier">SVM Classifier</option>
+                                </select>
+                                <small class="text-muted">Choose matching method</small>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="text-center">
@@ -428,16 +480,28 @@ function loadTrainingSummary() {
 function startAssetTraining() {
     const maxRealImages = parseInt($('#max-real-images').val());
     const maxAiImages = parseInt($('#max-ai-images').val());
+    const detectionMethod = $('#detection-method').val();
+    const recognitionModel = $('#recognition-model').val();
+    const matchingAlgorithm = $('#matching-algorithm').val();
     
     const trainingData = {
         max_real_images: maxRealImages,
-        max_ai_images: maxAiImages
+        max_ai_images: maxAiImages,
+        detection_method: detectionMethod,
+        recognition_model: recognitionModel,
+        matching_algorithm: matchingAlgorithm,
+        advanced_technologies: {
+            mtcnn_enabled: detectionMethod === 'mtcnn' || detectionMethod === 'ensemble',
+            custom_cnn_enabled: detectionMethod === 'custom_cnn' || detectionMethod === 'ensemble',
+            arcface_loss: recognitionModel === 'arcface',
+            ensemble_matching: matchingAlgorithm === 'ensemble'
+        }
     };
     
-    $('#start-training-btn').prop('disabled', true);
+    $('#start-training-btn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Initializing Advanced Training...');
     
     $.ajax({
-        url: '/api/start-asset-training',
+        url: '/api/start-advanced-training',
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify(trainingData),
@@ -447,12 +511,12 @@ function startAssetTraining() {
                 startStatusPolling();
             } else {
                 showError(response.message);
-                $('#start-training-btn').prop('disabled', false);
+                $('#start-training-btn').prop('disabled', false).html('<i class="fas fa-play"></i> Start Asset-Based Training');
             }
         },
         error: function() {
-            showError('Failed to start training');
-            $('#start-training-btn').prop('disabled', false);
+            showError('Failed to start advanced training');
+            $('#start-training-btn').prop('disabled', false).html('<i class="fas fa-play"></i> Start Asset-Based Training');
         }
     });
 }
@@ -513,31 +577,58 @@ function displayTrainingResults(results) {
     const resultsHtml = `
         <div class="results-grid">
             <div class="result-card">
-                <h6><i class="fas fa-images"></i> Image Processing</h6>
-                <p><strong>Real Images:</strong> ${results.processing_results.real_processed}</p>
-                <p><strong>AI Images:</strong> ${results.processing_results.ai_processed}</p>
-                <p><strong>Total Faces:</strong> ${results.processing_results.total_faces_found}</p>
+                <h6><i class="fas fa-search"></i> Detection Performance</h6>
+                <p><strong>Method Used:</strong> ${results.detection_results?.method || 'Standard'}</p>
+                <p><strong>Faces Detected:</strong> ${results.detection_results?.total_faces || results.processing_results?.total_faces_found}</p>
+                <p><strong>Detection Accuracy:</strong> ${results.detection_results?.accuracy ? (results.detection_results.accuracy * 100).toFixed(2) + '%' : 'N/A'}</p>
+                <p><strong>MTCNN Confidence:</strong> ${results.detection_results?.mtcnn_confidence ? (results.detection_results.mtcnn_confidence * 100).toFixed(2) + '%' : 'N/A'}</p>
             </div>
             
             <div class="result-card">
-                <h6><i class="fas fa-brain"></i> Model Training</h6>
-                <p><strong>Best Model:</strong> ${results.training_results.best_model}</p>
-                <p><strong>Accuracy:</strong> ${(results.training_results.best_accuracy * 100).toFixed(2)}%</p>
-                <p><strong>Training Samples:</strong> ${results.training_results.training_samples}</p>
+                <h6><i class="fas fa-brain"></i> Recognition Model</h6>
+                <p><strong>Architecture:</strong> ${results.recognition_results?.model_type || 'Custom CNN + ArcFace'}</p>
+                <p><strong>Embedding Size:</strong> ${results.recognition_results?.embedding_size || '512'}</p>
+                <p><strong>Training Samples:</strong> ${results.training_results?.training_samples}</p>
+                <p><strong>ArcFace Loss:</strong> ${results.recognition_results?.arcface_loss ? results.recognition_results.arcface_loss.toFixed(4) : 'N/A'}</p>
             </div>
             
             <div class="result-card">
-                <h6><i class="fas fa-vial"></i> Performance Test</h6>
-                <p><strong>Test Images:</strong> ${results.test_results.total_images}</p>
-                <p><strong>Successful Predictions:</strong> ${results.test_results.successful_predictions}</p>
-                <p><strong>Average Confidence:</strong> ${(results.test_results.average_confidence * 100).toFixed(2)}%</p>
+                <h6><i class="fas fa-chart-line"></i> Matching Performance</h6>
+                <p><strong>Algorithm:</strong> ${results.matching_results?.method || 'Ensemble'}</p>
+                <p><strong>Cosine Similarity:</strong> ${results.matching_results?.cosine_accuracy ? (results.matching_results.cosine_accuracy * 100).toFixed(2) + '%' : 'N/A'}</p>
+                <p><strong>SVM Accuracy:</strong> ${results.matching_results?.svm_accuracy ? (results.matching_results.svm_accuracy * 100).toFixed(2) + '%' : 'N/A'}</p>
+                <p><strong>Ensemble Score:</strong> ${results.matching_results?.ensemble_score ? (results.matching_results.ensemble_score * 100).toFixed(2) + '%' : 'N/A'}</p>
+            </div>
+            
+            <div class="result-card">
+                <h6><i class="fas fa-images"></i> Data Processing</h6>
+                <p><strong>Real Images:</strong> ${results.processing_results?.real_processed}</p>
+                <p><strong>AI Images:</strong> ${results.processing_results?.ai_processed}</p>
+                <p><strong>Total Faces:</strong> ${results.processing_results?.total_faces_found}</p>
+                <p><strong>Quality Score:</strong> ${results.processing_results?.quality_score ? (results.processing_results.quality_score * 100).toFixed(2) + '%' : 'N/A'}</p>
+            </div>
+            
+            <div class="result-card">
+                <h6><i class="fas fa-vial"></i> Performance Metrics</h6>
+                <p><strong>Overall Accuracy:</strong> ${(results.training_results?.best_accuracy * 100).toFixed(2)}%</p>
+                <p><strong>Processing Speed:</strong> ${results.performance_results?.processing_speed || 'N/A'} fps</p>
+                <p><strong>Memory Usage:</strong> ${results.performance_results?.memory_usage || 'N/A'} MB</p>
+                <p><strong>Model Size:</strong> ${results.performance_results?.model_size || 'N/A'} MB</p>
+            </div>
+            
+            <div class="result-card">
+                <h6><i class="fas fa-cogs"></i> Technology Stack</h6>
+                <p><strong>Detection:</strong> ${results.technology_stack?.detection || 'MTCNN + Custom CNN'}</p>
+                <p><strong>Recognition:</strong> ${results.technology_stack?.recognition || 'ArcFace Loss'}</p>
+                <p><strong>Matching:</strong> ${results.technology_stack?.matching || 'Ensemble Methods'}</p>
+                <p><strong>Optimization:</strong> ${results.technology_stack?.optimization || 'Grid Search CV'}</p>
             </div>
         </div>
     `;
     
     $('#results-content').html(resultsHtml);
     $('#results-card').show();
-    showSuccess('Training completed successfully!');
+    showSuccess('Advanced training completed successfully with state-of-the-art technologies!');
 }
 
 function loadTrainedModel() {
