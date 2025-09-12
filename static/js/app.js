@@ -390,12 +390,78 @@ class FaceRecognitionApp {
         const container = document.getElementById('realTimeResults');
         if (!container) return;
 
+        // If no results, show appropriate message
+        if (!results || results.length === 0) {
+            container.innerHTML = `
+                <div class="no-results">
+                    <p class="text-center text-muted">
+                        <i class="fas fa-search"></i> Scanning for faces...
+                    </p>
+                </div>
+            `;
+            return;
+        }
+
+        // Sort results by confidence (highest first) to show best match
+        results.sort((a, b) => b.confidence - a.confidence);
+
         container.innerHTML = '';
         
-        results.forEach(result => {
-            const resultItem = this.createResultItem(result, true);
+        // Add header showing scan status
+        const header = document.createElement('div');
+        header.className = 'realtime-header';
+        header.innerHTML = `
+            <h5><i class="fas fa-eye"></i> Live Recognition</h5>
+            <small class="text-muted">${results.length} face(s) detected</small>
+        `;
+        container.appendChild(header);
+        
+        // Display each result, with best match highlighted
+        results.forEach((result, index) => {
+            const resultItem = this.createRealTimeResultItem(result, index === 0);
             container.appendChild(resultItem);
         });
+    }
+
+    createRealTimeResultItem(result, isBestMatch = false) {
+        const item = document.createElement('div');
+        item.className = `realtime-result-item ${isBestMatch ? 'best-match' : ''} fade-in`;
+        
+        const confidence = Math.round(result.confidence * 100);
+        const confidenceClass = confidence > 80 ? 'success' : confidence > 60 ? 'warning' : 'danger';
+        
+        item.innerHTML = `
+            <div class="result-card ${isBestMatch ? 'border-success' : ''}">
+                ${isBestMatch ? '<div class="best-match-indicator"><i class="fas fa-crown"></i> Best Match</div>' : ''}
+                <div class="result-content">
+                    <div class="student-info">
+                        <h6 class="student-name ${isBestMatch ? 'text-success font-weight-bold' : ''}">
+                            ${result.name}
+                        </h6>
+                        <div class="student-details">
+                            <small><i class="fas fa-id-card"></i> ${result.student_id}</small><br>
+                            <small><i class="fas fa-graduation-cap"></i> ${result.department}</small><br>
+                            <small><i class="fas fa-calendar"></i> Year ${result.year}</small>
+                        </div>
+                    </div>
+                    <div class="confidence-display">
+                        <div class="confidence-bar">
+                            <div class="confidence-fill bg-${confidenceClass}" 
+                                 style="width: ${confidence}%"></div>
+                        </div>
+                        <span class="badge badge-${confidenceClass}">${confidence}%</span>
+                    </div>
+                    <div class="action-section">
+                        <button class="btn btn-${isBestMatch ? 'success' : 'outline-success'} btn-sm w-100" 
+                                onclick="markAttendance('${result.student_id}', '${result.name}')">
+                            <i class="fas fa-check"></i> Mark Attendance
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        return item;
     }
 
     createResultItem(result, isRealTime = false) {
@@ -571,7 +637,17 @@ class FaceRecognitionApp {
         containers.forEach(id => {
             const container = document.getElementById(id);
             if (container) {
-                container.innerHTML = '';
+                if (id === 'realTimeResults') {
+                    container.innerHTML = `
+                        <div class="no-results">
+                            <p class="text-center text-muted">
+                                <i class="fas fa-info-circle"></i> Real-time recognition stopped
+                            </p>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = '';
+                }
             }
         });
     }
@@ -591,11 +667,13 @@ class FaceRecognitionApp {
         if (!btn) return;
 
         if (this.isRecognitionActive) {
-            btn.textContent = 'Stop Recognition';
+            btn.innerHTML = '<i class="fas fa-stop recognition-active"></i> Stop Recognition';
             btn.className = 'btn btn-danger';
+            btn.classList.add('recognition-active');
         } else {
-            btn.textContent = 'Start Recognition';
+            btn.innerHTML = '<i class="fas fa-eye"></i> Start Recognition';
             btn.className = 'btn btn-success';
+            btn.classList.remove('recognition-active');
         }
     }
 
@@ -872,7 +950,7 @@ class FaceRecognitionApp {
 }
 
 // Global functions for inline event handlers
-async function markAttendance(studentId) {
+async function markAttendance(studentId, studentName = null) {
     try {
         const response = await fetch('/mark_attendance', {
             method: 'POST',
@@ -885,7 +963,11 @@ async function markAttendance(studentId) {
         const result = await response.json();
         
         if (result.success) {
-            app.showAlert(`Attendance marked for ${studentId}`, 'success');
+            const displayName = studentName || studentId;
+            app.showAlert(`✅ Attendance marked for ${displayName}`, 'success');
+            
+            // Update UI to show attendance marked
+            updateAttendanceButton(studentId, true);
         } else {
             app.showAlert(result.message || 'Failed to mark attendance', 'error');
         }
@@ -893,6 +975,20 @@ async function markAttendance(studentId) {
         console.error('Error marking attendance:', error);
         app.showAlert('Failed to mark attendance', 'error');
     }
+}
+
+function updateAttendanceButton(studentId, isMarked) {
+    // Find and update the attendance button for this student
+    const buttons = document.querySelectorAll(`button[onclick*="${studentId}"]`);
+    buttons.forEach(button => {
+        if (button.textContent.includes('Mark Attendance')) {
+            if (isMarked) {
+                button.innerHTML = '<i class="fas fa-check-circle"></i> Marked';
+                button.className = button.className.replace('btn-success', 'btn-secondary');
+                button.disabled = true;
+            }
+        }
+    });
 }
 
 async function bulkMarkAttendance() {

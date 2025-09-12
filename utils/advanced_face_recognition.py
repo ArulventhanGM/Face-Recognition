@@ -1,17 +1,32 @@
 """
 Advanced Face Recognition Module with Custom CNN and ArcFace Loss
-Implements state-of-the-art face recognition with deep learning
+Implements face recognition with fallback options
 """
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 import cv2
 from typing import List, Tuple, Optional, Dict
 import logging
 import math
 from dataclasses import dataclass
+import os
+
+# Try to import advanced libraries, fallback if not available
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("PyTorch not available, using basic face recognition")
+
+try:
+    import face_recognition
+    FACE_RECOGNITION_AVAILABLE = True
+except ImportError:
+    FACE_RECOGNITION_AVAILABLE = False
+    print("face_recognition library not available")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -156,7 +171,7 @@ class CustomFaceNet(nn.Module):
         return embeddings
 
 class AdvancedFaceRecognizer:
-    """Advanced face recognition system with Custom CNN and ArcFace loss"""
+    """Advanced face recognition system with fallback options"""
     
     def __init__(self, embedding_size=512, device='cpu'):
         self.embedding_size = embedding_size
@@ -165,27 +180,132 @@ class AdvancedFaceRecognizer:
         self.known_embeddings = {}
         self.known_names = []
         self.embedding_matrix = None
+        self.use_torch = TORCH_AVAILABLE
+        self.use_face_recognition = FACE_RECOGNITION_AVAILABLE
         self.initialize_model()
     
     def initialize_model(self):
-        """Initialize the face recognition model"""
+        """Initialize the face recognition model with fallbacks"""
         try:
-            self.model = CustomFaceNet(embedding_size=self.embedding_size)
-            
-            # Try to load pre-trained weights
-            model_path = 'models/custom_facenet_arcface.pth'
-            if os.path.exists(model_path):
-                checkpoint = torch.load(model_path, map_location=self.device)
-                self.model.load_state_dict(checkpoint['model_state_dict'])
-                logger.info("Custom FaceNet model loaded successfully")
+            if self.use_torch:
+                self.model = CustomFaceNet(embedding_size=self.embedding_size)
+                
+                # Try to load pre-trained weights
+                model_path = 'models/custom_facenet_arcface.pth'
+                if os.path.exists(model_path):
+                    checkpoint = torch.load(model_path, map_location=self.device)
+                    self.model.load_state_dict(checkpoint['model_state_dict'])
+                    logger.info("Custom FaceNet model loaded successfully")
+                else:
+                    logger.warning("Pre-trained model not found, using random weights")
+                
+                self.model.to(self.device)
+                self.model.eval()
+                logger.info("PyTorch-based recognition initialized")
+                
+            elif self.use_face_recognition:
+                logger.info("Using face_recognition library as fallback")
             else:
-                logger.warning("Pre-trained model not found, using random weights")
-            
-            self.model.to(self.device)
-            self.model.eval()
-            
+                logger.warning("No recognition backends available. Using basic feature extraction.")
+                
         except Exception as e:
             logger.error(f"Error initializing recognition model: {e}")
+            # Fallback to basic mode
+            self.use_torch = False
+            if FACE_RECOGNITION_AVAILABLE:
+                self.use_face_recognition = True
+                logger.info("Falling back to face_recognition library")
+    
+    def extract_embedding(self, face_image: np.ndarray) -> Optional[np.ndarray]:
+        """Extract face embedding using available method"""
+        try:
+            if self.use_torch and self.model is not None:
+                return self._extract_embedding_torch(face_image)
+            elif self.use_face_recognition:
+                return self._extract_embedding_face_recognition(face_image)
+            else:
+                return self._extract_embedding_basic(face_image)
+                
+        except Exception as e:
+            logger.error(f"Error extracting embedding: {e}")
+            return None
+    
+    def _extract_embedding_torch(self, face_image: np.ndarray) -> Optional[np.ndarray]:
+        """Extract embedding using PyTorch model"""
+        try:
+            face_tensor = self.preprocess_face(face_image)
+            if face_tensor is None:
+                return None
+            
+            with torch.no_grad():
+                embedding = self.model(face_tensor)
+                
+            embedding = F.normalize(embedding, p=2, dim=1)
+            return embedding.cpu().numpy().flatten()
+            
+        except Exception as e:
+            logger.error(f"Error in PyTorch embedding extraction: {e}")
+            return None
+    
+    def _extract_embedding_face_recognition(self, face_image: np.ndarray) -> Optional[np.ndarray]:
+        """Extract embedding using face_recognition library"""
+        try:
+            # Convert BGR to RGB if needed
+            if len(face_image.shape) == 3:
+                rgb_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
+            else:
+                rgb_image = face_image
+            
+            # Extract face encodings
+            encodings = face_recognition.face_encodings(rgb_image)
+            if encodings:
+                return encodings[0]
+            else:
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error in face_recognition embedding extraction: {e}")
+            return None
+    
+    def _extract_embedding_basic(self, face_image: np.ndarray) -> Optional[np.ndarray]:
+        """Extract basic features as fallback"""
+        try:
+            # Convert to grayscale
+            if len(face_image.shape) == 3:
+                gray = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = face_image
+            
+            # Resize to fixed size
+            resized = cv2.resize(gray, (64, 64))
+            
+            # Extract basic features
+            # Histogram of gradients
+            sobelx = cv2.Sobel(resized, cv2.CV_64F, 1, 0, ksize=3)
+            sobely = cv2.Sobel(resized, cv2.CV_64F, 0, 1, ksize=3)
+            
+            # Create feature vector
+            features = []
+            features.extend(resized.flatten()[:256])  # Pixel intensities (reduced)
+            features.extend(np.histogram(sobelx, bins=32)[0])  # Gradient histogram X
+            features.extend(np.histogram(sobely, bins=32)[0])  # Gradient histogram Y
+            
+            # Normalize
+            embedding = np.array(features, dtype=np.float32)
+            embedding = embedding / (np.linalg.norm(embedding) + 1e-8)
+            
+            # Pad or truncate to desired size
+            if len(embedding) > self.embedding_size:
+                embedding = embedding[:self.embedding_size]
+            else:
+                padding = np.zeros(self.embedding_size - len(embedding))
+                embedding = np.concatenate([embedding, padding])
+            
+            return embedding
+            
+        except Exception as e:
+            logger.error(f"Error in basic embedding extraction: {e}")
+            return None
     
     def preprocess_face(self, face_image: np.ndarray, target_size=(112, 112)) -> torch.Tensor:
         """Preprocess face image for recognition"""

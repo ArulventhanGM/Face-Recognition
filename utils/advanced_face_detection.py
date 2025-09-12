@@ -1,18 +1,31 @@
 """
-Advanced Face Detection Module using MTCNN and Custom CNN
-Implements state-of-the-art face detection technologies
+Advanced Face Detection Module using OpenCV and Custom CNN
+Implements face detection technologies with fallback options
 """
 
 import cv2
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from facenet_pytorch import MTCNN
 import logging
 from typing import List, Tuple, Optional, Dict
 import os
 from dataclasses import dataclass
+
+# Try to import advanced libraries, fallback to basic if not available
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("PyTorch not available, using OpenCV-only detection")
+
+try:
+    from facenet_pytorch import MTCNN
+    MTCNN_AVAILABLE = True
+except ImportError:
+    MTCNN_AVAILABLE = False
+    print("MTCNN not available, using OpenCV Haar cascades")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -107,44 +120,97 @@ class CustomCNN(nn.Module):
         return classification, bbox
 
 class AdvancedFaceDetector:
-    """Advanced face detection system using MTCNN and Custom CNN"""
+    """Advanced face detection system with fallback options"""
     
     def __init__(self, device='cpu'):
         self.device = device
         self.mtcnn = None
         self.custom_cnn = None
+        self.opencv_cascade = None
         self.initialize_models()
     
     def initialize_models(self):
-        """Initialize detection models"""
+        """Initialize detection models with fallbacks"""
         try:
-            # Initialize MTCNN
-            self.mtcnn = MTCNN(
-                image_size=160,
-                margin=0,
-                min_face_size=20,
-                thresholds=[0.6, 0.7, 0.7],  # P-Net, R-Net, O-Net thresholds
-                factor=0.709,
-                post_process=False,
-                device=self.device
-            )
-            logger.info("MTCNN initialized successfully")
+            # Try to initialize MTCNN if available
+            if MTCNN_AVAILABLE:
+                self.mtcnn = MTCNN(
+                    image_size=160,
+                    margin=0,
+                    min_face_size=20,
+                    thresholds=[0.6, 0.7, 0.7],
+                    factor=0.709,
+                    post_process=False,
+                    device=self.device
+                )
+                logger.info("MTCNN initialized successfully")
             
-            # Initialize Custom CNN
-            self.custom_cnn = CustomCNN()
+            # Initialize OpenCV Haar Cascade as fallback
+            cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            if os.path.exists(cascade_path):
+                self.opencv_cascade = cv2.CascadeClassifier(cascade_path)
+                logger.info("OpenCV Haar Cascade initialized successfully")
             
-            # Try to load pre-trained weights if available
-            model_path = os.path.join('models', 'custom_face_detector.pth')
-            if os.path.exists(model_path):
-                self.custom_cnn.load_state_dict(torch.load(model_path, map_location=self.device))
-                logger.info("Custom CNN model loaded successfully")
-            else:
-                logger.warning("Custom CNN model not found, using random weights")
-            
-            self.custom_cnn.eval()
+            # Try to initialize Custom CNN if PyTorch is available
+            if TORCH_AVAILABLE:
+                self.custom_cnn = CustomCNN()
+                model_path = os.path.join('models', 'custom_face_detector.pth')
+                if os.path.exists(model_path):
+                    self.custom_cnn.load_state_dict(torch.load(model_path, map_location=self.device))
+                    logger.info("Custom CNN model loaded successfully")
+                else:
+                    logger.warning("Custom CNN model not found, using random weights")
+                self.custom_cnn.eval()
             
         except Exception as e:
             logger.error(f"Error initializing detection models: {e}")
+    
+    def detect_faces_opencv(self, image: np.ndarray) -> List[DetectionResult]:
+        """Detect faces using OpenCV Haar Cascades (fallback method)"""
+        try:
+            if self.opencv_cascade is None:
+                return []
+            
+            # Convert to grayscale
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = image
+            
+            # Detect faces
+            faces = self.opencv_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.1,
+                minNeighbors=5,
+                minSize=(30, 30),
+                flags=cv2.CASCADE_SCALE_IMAGE
+            )
+            
+            results = []
+            for (x, y, w, h) in faces:
+                # Calculate confidence (OpenCV doesn't provide this, so estimate)
+                face_region = gray[y:y+h, x:x+w]
+                confidence = 0.8  # Default confidence for OpenCV detection
+                
+                # Simple quality check
+                if face_region.size > 0:
+                    # Check if face region has good contrast
+                    std = np.std(face_region)
+                    if std > 10:  # Good contrast
+                        confidence = 0.9
+                    elif std < 5:  # Poor contrast
+                        confidence = 0.6
+                
+                results.append(DetectionResult(
+                    bbox=(x, y, w, h),
+                    confidence=confidence
+                ))
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in OpenCV detection: {e}")
+            return []
     
     def detect_faces_mtcnn(self, image: np.ndarray) -> List[DetectionResult]:
         """Detect faces using MTCNN"""
@@ -301,23 +367,33 @@ class AdvancedFaceDetector:
         
         return intersection / union if union > 0 else 0.0
     
-    def detect_faces(self, image: np.ndarray, method: str = 'mtcnn') -> List[DetectionResult]:
-        """Detect faces using specified method"""
-        if method.lower() == 'mtcnn':
+    def detect_faces(self, image: np.ndarray, method: str = 'auto') -> List[DetectionResult]:
+        """Detect faces using specified method with automatic fallback"""
+        if method == 'auto':
+            # Automatically choose best available method
+            if MTCNN_AVAILABLE and self.mtcnn is not None:
+                method = 'mtcnn'
+            elif TORCH_AVAILABLE and self.custom_cnn is not None:
+                method = 'custom_cnn'
+            else:
+                method = 'opencv'
+        
+        if method.lower() == 'mtcnn' and MTCNN_AVAILABLE:
             return self.detect_faces_mtcnn(image)
-        elif method.lower() == 'custom_cnn':
+        elif method.lower() == 'custom_cnn' and TORCH_AVAILABLE:
             return self.detect_faces_custom_cnn(image)
         elif method.lower() == 'ensemble':
-            # Use both methods and combine results
-            mtcnn_results = self.detect_faces_mtcnn(image)
-            cnn_results = self.detect_faces_custom_cnn(image)
-            
-            # Combine and apply NMS
-            all_results = mtcnn_results + cnn_results
+            # Use multiple methods and combine results
+            all_results = []
+            if MTCNN_AVAILABLE:
+                all_results.extend(self.detect_faces_mtcnn(image))
+            if TORCH_AVAILABLE:
+                all_results.extend(self.detect_faces_custom_cnn(image))
+            all_results.extend(self.detect_faces_opencv(image))
             return self._non_maximum_suppression(all_results)
         else:
-            logger.warning(f"Unknown detection method: {method}. Using MTCNN.")
-            return self.detect_faces_mtcnn(image)
+            # Fallback to OpenCV
+            return self.detect_faces_opencv(image)
     
     def visualize_detections(self, image: np.ndarray, detections: List[DetectionResult]) -> np.ndarray:
         """Draw detection results on image"""
