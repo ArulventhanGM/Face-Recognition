@@ -3,49 +3,49 @@
 {% block title %}Face Recognition - Face Recognition System{% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container py-4">
     <!-- Real-time Recognition Card -->
-    <div class="card">
-        <div class="card-header">
-            <h1 class="card-title">
-                <i class="fas fa-video"></i>
+    <div class="glass-card">
+        <div style="margin-bottom: 20px; border-bottom: 1px solid var(--glass-border); padding-bottom: 15px;">
+            <h1 style="font-family: 'Orbitron', sans-serif; margin: 0; color: var(--text-primary);">
+                <i class="fas fa-video" style="color: var(--accent-teal);"></i>
                 Real-time Face Recognition
             </h1>
         </div>
         
-        <div class="grid grid-2">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 30px;">
             <div>
-                <div class="camera-container">
-                    <video id="cameraPreview" class="camera-preview" autoplay muted></video>
-                    <div class="camera-overlay" id="cameraOverlay"></div>
+                <div class="camera-container" style="border: 1px solid var(--glass-border); border-radius: 10px; overflow: hidden; box-shadow: var(--glass-shadow);">
+                    <video id="cameraPreview" class="camera-preview" autoplay muted style="width: 100%; background-color: var(--glass-bg-darker);"></video>
+                    <div class="camera-overlay" id="cameraOverlay" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 5;"></div>
                 </div>
                 
-                <div class="d-flex gap-2 mt-3 justify-center">
-                    <button id="startCamera" class="btn btn-success">
+                <div style="display: flex; gap: 10px; margin-top: 15px; justify-content: center;">
+                    <button id="startCamera" class="glass-button success">
                         <i class="fas fa-play"></i> Start Camera
                     </button>
-                    <button id="stopCamera" class="btn btn-danger" style="display: none;">
+                    <button id="stopCamera" class="glass-button danger" style="display: none;">
                         <i class="fas fa-stop"></i> Stop Camera
                     </button>
-                    <button id="capturePhoto" class="btn btn-primary" disabled>
+                    <button id="capturePhoto" class="glass-button primary" disabled>
                         <i class="fas fa-camera"></i> Capture Photo
                     </button>
-                    <button id="toggleRecognition" class="btn btn-success">
+                    <button id="toggleRecognition" class="glass-button success">
                         <i class="fas fa-eye"></i> Start Recognition
                     </button>
                 </div>
             </div>
             
-            <div>
-                <h3>Recognition Results</h3>
-                <div id="realTimeResults" class="recognition-results">
-                    <p class="text-center text-muted">Start recognition to see results</p>
+            <div class="results-panel">
+                <h3 style="font-family: 'Orbitron', sans-serif; color: var(--accent-violet); margin-bottom: 15px;">Recognition Results</h3>
+                <div id="realTimeResults" class="glass-card" style="min-height: 200px; margin-bottom: 20px;">
+                    <p style="text-align: center; color: var(--text-secondary); padding: 20px;">Start recognition to see results</p>
                 </div>
                 
-                <div class="alert alert-info mt-3">
-                    <i class="fas fa-info-circle"></i>
-                    <strong>How to use:</strong>
-                    <ul class="mt-2" style="margin-bottom: 0;">
+                <div class="glass-card" style="border-left: 3px solid var(--accent-teal);">
+                    <i class="fas fa-info-circle" style="color: var(--accent-teal);"></i>
+                    <strong style="color: var(--text-primary);">How to use:</strong>
+                    <ul style="margin: 10px 0 0 0; padding-left: 20px; color: var(--text-secondary);">
                         <li>Click "Start Camera" to activate webcam</li>
                         <li>Click "Start Recognition" for real-time detection</li>
                         <li>Recognized students will appear on the right</li>

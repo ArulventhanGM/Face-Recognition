@@ -1874,36 +1874,72 @@ body, html {
     max-width: 500px;
     width: 100%;
     position: relative;
-    transition: var(--transition-smooth);
+    transition: all 0.8s cubic-bezier(0.165, 0.84, 0.44, 1);
     transform-style: preserve-3d;
+    perspective: 1000px;
+    transform: translateZ(0);
 }
 
 .login-card:hover {
-    transform: translateY(-10px) rotateX(5deg) rotateY(5deg);
+    transform: translateY(-10px) rotateX(5deg) rotateY(5deg) translateZ(10px);
     box-shadow: 
         var(--glass-shadow),
-        0 20px 60px rgba(37, 117, 252, 0.2),
-        0 0 40px rgba(255, 0, 128, 0.1);
+        0 30px 70px rgba(37, 117, 252, 0.25),
+        0 0 50px rgba(255, 0, 128, 0.15);
     border-color: var(--primary-cyan);
 }
 
 .login-card::before {
     content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    border-radius: 24px;
-    background: linear-gradient(45deg, var(--neon-pink), var(--primary-cyan));
-    opacity: 0;
-    transition: var(--transition-smooth);
+    top: -4px;
+    left: -4px;
+    right: -4px;
+    bottom: -4px;
+    border-radius: 28px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05), rgba(37, 117, 252, 0.2), rgba(255, 0, 128, 0.2));
+    opacity: 0.4;
+    transition: all 0.7s cubic-bezier(0.23, 1, 0.32, 1);
     z-index: -1;
-    filter: blur(20px);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 
+        0 10px 30px rgba(0, 0, 0, 0.1),
+        0 0 20px rgba(255, 255, 255, 0.05) inset;
+    transform: translateZ(-10px) scale(0.96);
+    transform-origin: center center;
+    animation: pulse-subtle 6s infinite alternate;
+}
+
+@keyframes pulse-subtle {
+    0% { background-position: 0% 0%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 100%; }
+}
+
+@keyframes float {
+    0%, 100% {
+        transform: translateY(0);
+        opacity: 0;
+    }
+    10%, 90% {
+        opacity: 0.8;
+    }
+    50% {
+        transform: translateY(-40px);
+        opacity: 0.5;
+    }
 }
 
 .login-card:hover::before {
-    opacity: 0.1;
+    opacity: 0.8;
+    transform: translateZ(20px) scale(1.03);
+    background-size: 200% 200%;
+    box-shadow: 
+        0 15px 40px rgba(0, 0, 0, 0.2),
+        0 0 30px rgba(255, 0, 128, 0.2),
+        0 0 20px rgba(37, 117, 252, 0.3) inset;
+    animation-duration: 3s;
 }
 
 /* Card Header */
