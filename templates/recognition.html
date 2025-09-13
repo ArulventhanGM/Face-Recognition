@@ -56,6 +56,79 @@
         </div>
     </div>
 
+    <!-- Enhanced Face Comparison System -->
+    <div class="card" id="faceComparisonSection" style="display: none;">
+        <div class="card-header">
+            <h2 class="card-title">
+                <i class="fas fa-eye"></i>
+                Face Comparison & Verification
+            </h2>
+        </div>
+        
+        <div class="card-body">
+            <div class="comparison-container">
+                <!-- Real-time Face Display -->
+                <div class="realtime-face-section">
+                    <h3><i class="fas fa-video"></i> Detected Face</h3>
+                    <div class="face-display-card">
+                        <div class="face-image-container" id="realtimeFaceContainer">
+                            <img id="realtimeFaceImage" src="" alt="Detected Face" style="display: none;">
+                            <div class="no-face-placeholder">
+                                <i class="fas fa-user-circle"></i>
+                                <p>No face detected</p>
+                            </div>
+                        </div>
+                        <div class="face-metadata" id="realtimeFaceMetadata">
+                            <div class="metadata-item">
+                                <span class="label">Quality:</span>
+                                <span class="value" id="faceQuality">-</span>
+                            </div>
+                            <div class="metadata-item">
+                                <span class="label">Detection Time:</span>
+                                <span class="value" id="detectionTime">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Suggested Matches -->
+                <div class="suggested-matches-section">
+                    <h3><i class="fas fa-search"></i> Suggested Matches</h3>
+                    <div class="matches-container" id="suggestedMatches">
+                        <div class="no-matches-placeholder">
+                            <i class="fas fa-search"></i>
+                            <p>No matches found</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manual Verification Controls -->
+            <div class="verification-controls" id="verificationControls" style="display: none;">
+                <div class="controls-header">
+                    <h4><i class="fas fa-check-circle"></i> Manual Verification</h4>
+                    <p>Review the suggested matches and verify the correct student for attendance marking.</p>
+                </div>
+                
+                <div class="verification-buttons">
+                    <button class="btn btn-success" id="confirmMatchBtn" onclick="confirmMatch()">
+                        <i class="fas fa-check"></i> Confirm & Mark Attendance
+                    </button>
+                    <button class="btn btn-warning" id="skipMatchBtn" onclick="skipMatch()">
+                        <i class="fas fa-forward"></i> Skip This Face
+                    </button>
+                    <button class="btn btn-danger" id="rejectAllBtn" onclick="rejectAllMatches()">
+                        <i class="fas fa-times"></i> No Match Found
+                    </button>
+                </div>
+                
+                <div class="verification-feedback" id="verificationFeedback">
+                    <!-- Feedback messages will appear here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Bulk Attendance -->
     <div class="card">
         <div class="card-header">

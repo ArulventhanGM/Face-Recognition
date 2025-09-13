@@ -191,7 +191,7 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Admin login"""
+    """Admin login with futuristic interface"""
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
     
@@ -203,12 +203,27 @@ def login():
             password == app.config['ADMIN_PASSWORD']):
             user = User(username)
             login_user(user)
-            flash('Login successful!', 'success')
             
+            # Return JSON response for AJAX requests
+            if request.headers.get('Content-Type') == 'application/x-www-form-urlencoded':
+                return jsonify({
+                    'success': True,
+                    'message': 'Login successful!',
+                    'redirect': url_for('dashboard')
+                }), 200
+            
+            flash('Login successful!', 'success')
             # Redirect to next page or dashboard
             next_page = request.args.get('next')
             return redirect(next_page) if next_page else redirect(url_for('dashboard'))
         else:
+            # Return JSON error for AJAX requests
+            if request.headers.get('Content-Type') == 'application/x-www-form-urlencoded':
+                return jsonify({
+                    'success': False,
+                    'message': 'Invalid username or password'
+                }), 401
+            
             flash('Invalid username or password', 'error')
     
     return render_template('login.html')
@@ -265,7 +280,7 @@ def dashboard():
                                  key=lambda x: f"{x['date']} {x['time']}", 
                                  reverse=True)[:10]
         
-        return render_template('dashboard_new.html', 
+        return render_template('dashboard.html', 
                              stats=stats, 
                              recent_attendance=recent_attendance)
     except Exception as e:
@@ -677,21 +692,49 @@ def recognize_realtime():
 @app.route('/mark_attendance', methods=['POST'])
 @login_required
 def mark_attendance():
-    """Mark attendance for a student"""
+    """Mark attendance for a student with enhanced verification support"""
     try:
         data = request.get_json()
         if not data or 'student_id' not in data:
             return jsonify({'success': False, 'message': 'Student ID required'})
-        
+
         student_id = data['student_id']
+        
+        # Get optional verification data
+        verified = data.get('verified', False)
+        similarity_score = data.get('similarity_score', 0)
+        verification_method = data.get('verification_method', 'camera')
+        
         data_manager = get_data_manager()
         
-        success = data_manager.mark_attendance(student_id, method='camera')
+        # Enhanced attendance marking with verification metadata
+        if verified and similarity_score > 0:
+            logger.info(f"Manual verification attendance: {student_id} (similarity: {similarity_score}%)")
+            success = data_manager.mark_attendance(
+                student_id,
+                method='manual_face_comparison',
+                similarity_score=similarity_score,
+                verified_by_user=True
+            )
+        else:
+            success = data_manager.mark_attendance(student_id, method='camera')
         
         if success:
+            # Get student info for response
+            student = data_manager.get_student(student_id)
+            student_name = student.get('name', student_id) if student else student_id
+            
+            response_message = f"Attendance marked for {student_name}"
+            if verified:
+                response_message += f" (Manual verification: {similarity_score:.1f}% match)"
+            
             return jsonify({
                 'success': True,
-                'message': f'Attendance marked for {student_id}'
+                'message': response_message,
+                'student_id': student_id,
+                'student_name': student_name,
+                'verification_method': verification_method,
+                'similarity_score': similarity_score if verified else None
             })
         else:
             return jsonify({
@@ -1713,7 +1756,152 @@ def api_predict_test():
         logger.error(f"Error predicting test image: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
-@app.errorhandler(413)
+@app.route('/api/recognize_enhanced_realtime', methods=['POST'])
+@login_required
+def api_recognize_enhanced_realtime():
+    """Enhanced real-time face recognition with cropping and comparison"""
+    try:
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({'success': False, 'message': 'No image data'})
+
+        # Decode base64 image
+        image = decode_base64_image(data['image'])
+        if image is None:
+            return jsonify({'success': False, 'message': 'Invalid image data'})
+
+        # Get enhanced face processor
+        from utils.realtime_face_processor import get_realtime_processor
+        processor = get_realtime_processor()
+        
+        # Process frame with enhanced detection and cropping
+        result = processor.process_realtime_frame(image)
+        
+        if not result['success']:
+            return jsonify(result)
+        
+        # Convert face crops to base64 for web display
+        enhanced_faces = []
+        for face in result['faces']:
+            if face.get('crop_path'):
+                try:
+                    # Read cropped face image
+                    face_image = cv2.imread(face['crop_path'])
+                    if face_image is not None:
+                        # Convert to base64
+                        _, buffer = cv2.imencode('.jpg', face_image)
+                        face_base64 = base64.b64encode(buffer).decode('utf-8')
+                        face['crop_base64'] = f"data:image/jpeg;base64,{face_base64}"
+                        
+                    enhanced_faces.append(face)
+                except Exception as e:
+                    logger.warning(f"Error processing face crop: {e}")
+                    continue
+        
+        return jsonify({
+            'success': True,
+            'faces': enhanced_faces,
+            'total_faces': len(enhanced_faces),
+            'frame_processed': True
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced real-time recognition: {e}")
+        return jsonify({'success': False, 'message': 'Recognition failed'})
+
+@app.route('/api/get_face_comparisons', methods=['POST'])
+@login_required
+def api_get_face_comparisons():
+    """Get face comparison results for a cropped face"""
+    try:
+        data = request.get_json()
+        if not data or 'crop_path' not in data:
+            return jsonify({'success': False, 'message': 'No crop path provided'})
+
+        crop_path = data['crop_path']
+        
+        # Get face comparison system
+        from utils.face_comparison_system import get_face_comparison_system
+        data_manager = get_data_manager()
+        comparison_system = get_face_comparison_system(data_manager)
+        
+        # Process the face comparison
+        comparison_result = comparison_system.process_realtime_recognition(crop_path)
+        
+        return jsonify(comparison_result)
+        
+    except Exception as e:
+        logger.error(f"Error getting face comparisons: {e}")
+        return jsonify({'success': False, 'message': 'Comparison failed'})
+
+@app.route('/api/verify_face_match', methods=['POST'])
+@login_required
+def api_verify_face_match():
+    """Verify and confirm a face match for attendance"""
+    try:
+        data = request.get_json()
+        required_fields = ['student_id', 'similarity_score', 'verified']
+        
+        if not all(field in data for field in required_fields):
+            return jsonify({'success': False, 'message': 'Missing required fields'})
+        
+        student_id = data['student_id']
+        similarity_score = data['similarity_score']
+        verified = data['verified']
+        
+        if verified and similarity_score >= 50:  # Minimum threshold for manual verification
+            # Mark attendance with verification metadata
+            data_manager = get_data_manager()
+            result = data_manager.mark_attendance(
+                student_id, 
+                verification_method='manual_face_comparison',
+                similarity_score=similarity_score,
+                verified_by_user=True
+            )
+            
+            if result['success']:
+                logger.info(f"Manual face verification successful: {student_id} (similarity: {similarity_score}%)")
+                return jsonify({
+                    'success': True, 
+                    'message': f'Attendance marked for {student_id}',
+                    'student_id': student_id,
+                    'similarity_score': similarity_score
+                })
+            else:
+                return jsonify({'success': False, 'message': result.get('message', 'Failed to mark attendance')})
+        else:
+            return jsonify({'success': False, 'message': 'Verification failed or low confidence'})
+            
+    except Exception as e:
+        logger.error(f"Error verifying face match: {e}")
+        return jsonify({'success': False, 'message': 'Verification failed'})
+
+@app.route('/api/face_detection_stats')
+@login_required
+def api_face_detection_stats():
+    """Get face detection statistics"""
+    try:
+        from utils.realtime_face_processor import get_realtime_processor
+        processor = get_realtime_processor()
+        
+        stats = {
+            'total_crops_processed': processor.crop_counter,
+            'temp_directory': processor.temp_dir,
+            'detection_parameters': {
+                'min_face_size': processor.min_face_size,
+                'max_face_size': processor.max_face_size,
+                'scale_factor': processor.scale_factor,
+                'min_neighbors': processor.min_neighbors
+            }
+        }
+        
+        return jsonify({'success': True, 'stats': stats})
+        
+    except Exception as e:
+        logger.error(f"Error getting face detection stats: {e}")
+        return jsonify({'success': False, 'message': 'Failed to get stats'})
+
+@app.route('/errorhandler/413')
 def file_too_large(error):
     flash('File too large. Maximum size is 16MB.', 'error')
     return redirect(request.url)
