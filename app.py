@@ -1039,20 +1039,83 @@ def export_data(data_type):
     try:
         data_manager = get_data_manager()
         file_path = data_manager.export_data(data_type)
-        
+
         if file_path and os.path.exists(file_path):
-            return send_file(file_path, 
-                           as_attachment=True, 
+            return send_file(file_path,
+                           as_attachment=True,
                            download_name=f'{data_type}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
                            mimetype='text/csv')
         else:
             flash(f'No {data_type} data available for export', 'error')
-            
+            return redirect(url_for('dashboard'))
     except Exception as e:
         logger.error(f"Error exporting {data_type}: {e}")
         flash(f'Failed to export {data_type} data', 'error')
-    
-    return redirect(url_for('dashboard'))
+        return redirect(url_for('dashboard'))
+
+@app.route('/settings')
+@login_required
+def settings():
+    """System settings page"""
+    return render_template('settings.html', config=app.config)
+
+
+
+@app.route('/update_security_settings', methods=['POST'])
+@login_required
+def update_security_settings():
+    """Update security settings"""
+    try:
+        current_password = request.form.get('current_password')
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        
+        # Validate current password
+        if current_password != app.config['ADMIN_PASSWORD']:
+            flash('Current password is incorrect', 'error')
+            return redirect(url_for('settings'))
+        
+        # Validate new password
+        if not new_password or len(new_password) < 8:
+            flash('New password must be at least 8 characters long', 'error')
+            return redirect(url_for('settings'))
+            
+        # Confirm passwords match
+        if new_password != confirm_password:
+            flash('New passwords do not match', 'error')
+            return redirect(url_for('settings'))
+        
+        # Update password in application config
+        app.config['ADMIN_PASSWORD'] = new_password
+        
+        # Update environment variable
+        with open('.env', 'r') as env_file:
+            lines = env_file.readlines()
+        
+        new_lines = []
+        password_found = False
+        
+        for line in lines:
+            if line.startswith('ADMIN_PASSWORD='):
+                new_lines.append(f'ADMIN_PASSWORD={new_password}\n')
+                password_found = True
+            else:
+                new_lines.append(line)
+                
+        # Add password if it doesn't exist
+        if not password_found:
+            new_lines.append(f'ADMIN_PASSWORD={new_password}\n')
+        
+        with open('.env', 'w') as env_file:
+            env_file.writelines(new_lines)
+            
+        flash('Password updated successfully!', 'success')
+        return redirect(url_for('settings'))
+        
+    except Exception as e:
+        logger.error(f"Error updating security settings: {e}")
+        flash(f'Error updating security settings: {str(e)}', 'error')
+        return redirect(url_for('settings'))
 
 # Error handlers
 @app.errorhandler(404)
@@ -1900,6 +1963,8 @@ def api_face_detection_stats():
     except Exception as e:
         logger.error(f"Error getting face detection stats: {e}")
         return jsonify({'success': False, 'message': 'Failed to get stats'})
+
+
 
 @app.route('/errorhandler/413')
 def file_too_large(error):

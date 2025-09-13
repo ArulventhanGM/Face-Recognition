@@ -9,6 +9,7 @@ class Config:
     ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD') or 'admin123'
     DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'  # Default to False for production
     
+    
     # File storage settings
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or 'uploads'
     DATA_FOLDER = os.environ.get('DATA_FOLDER') or 'data'

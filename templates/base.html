@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/futuristic.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/futuristic-overrides.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/enhanced-ui.css') }}">
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -42,6 +43,7 @@
                     <li><a href="{{ url_for('asset_training.index') }}" class="glass-nav-link"><i class="fas fa-database"></i> Asset Training</a></li>
                     <li><a href="{{ url_for('attendance') }}" class="glass-nav-link"><i class="fas fa-calendar-check"></i> Attendance</a></li>
                     <li><a href="{{ url_for('recognition') }}" class="glass-nav-link"><i class="fas fa-camera"></i> Recognition</a></li>
+                    <li><a href="{{ url_for('settings') }}" class="glass-nav-link"><i class="fas fa-cog"></i> Settings</a></li>
                 </ul>
             </nav>
             <form method="POST" action="{{ url_for('logout') }}" style="margin: 0;">
@@ -79,6 +81,9 @@
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <!-- Futuristic Background Effects -->
     <script src="{{ url_for('static', filename='js/futuristic-background.js') }}"></script>
+    <!-- Enhanced UI (includes particles and interactive elements) -->
+    <script src="{{ url_for('static', filename='js/enhanced-ui.js') }}"></script>
+    <!-- Auto-refresh functionality removed -->
     {% block extra_js %}{% endblock %}
     
     <script>
