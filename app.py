@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, abort
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.utils import secure_filename
-from werkzeug.security import check_password_hash, generate_password_hash
 import os
 import cv2
 import numpy as np
@@ -10,12 +9,11 @@ import pandas as pd
 import time
 from datetime import datetime, timedelta
 import logging
-from collections import defaultdict, Counter
+from collections import Counter
 
 from config import Config
-from utils.data_manager import get_data_manager, get_face_recognizer
+from utils.data_manager import get_data_manager, get_face_recognizer, get_face_recognition_backend
 from utils.security import sanitize_filename, validate_student_id, validate_email
-from utils.data_manager import get_face_recognition_backend
 from utils.asset_training_routes import asset_training_bp
 
 # Configure logging
@@ -588,7 +586,7 @@ def recognize_photo():
             # Clean up uploaded file
             try:
                 os.remove(filepath)
-            except:
+            except OSError:
                 pass
 
     except Exception as e:
@@ -927,7 +925,7 @@ def student_photo(student_id):
                 return send_file(default_avatar_path, mimetype='image/svg+xml')
             else:
                 abort(404)
-        except:
+        except Exception:
             abort(404)
 
 @app.route('/attendance')
@@ -1187,7 +1185,7 @@ def train_existing_student():
         for temp_path in temp_image_paths:
             try:
                 os.remove(temp_path)
-            except:
+            except OSError:
                 pass
         
         # Add student information to result
@@ -1254,7 +1252,7 @@ def train_new_person():
         for temp_path in temp_image_paths:
             try:
                 os.remove(temp_path)
-            except:
+            except OSError:
                 pass
         
         # Add student information to result
@@ -1790,7 +1788,6 @@ def api_predict_test():
         
         # Save temporary file
         import tempfile
-        import os
         temp_dir = tempfile.gettempdir()
         temp_path = os.path.join(temp_dir, f"test_image_{int(time.time())}.jpg")
         file.save(temp_path)

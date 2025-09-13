@@ -32,57 +32,75 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // No auto-refresh will be started
     
-    // Store form data in session storage before page unload (for form persistence)
+    // Form persistence functionality - updated to be more robust
     window.addEventListener('beforeunload', function() {
-        if (document.querySelector('form')) {
-            const forms = document.querySelectorAll('form');
-            const allFormData = {};
-            
-            forms.forEach((form, index) => {
-                const formData = {};
-                const formElements = form.elements;
+        try {
+            if (document.querySelector('form')) {
+                const forms = document.querySelectorAll('form');
+                const allFormData = {};
                 
-                for (let i = 0; i < formElements.length; i++) {
-                    const element = formElements[i];
-                    if (element.name && element.type !== 'submit') {
-                        if (element.type === 'checkbox' || element.type === 'radio') {
-                            formData[element.name] = element.checked;
-                        } else {
-                            formData[element.name] = element.value;
+                forms.forEach((form, index) => {
+                    if (form && form.elements) {
+                        const formData = {};
+                        const formElements = form.elements;
+                        
+                        for (let i = 0; i < formElements.length; i++) {
+                            const element = formElements[i];
+                            if (element && element.name && element.type !== 'submit') {
+                                if (element.type === 'checkbox' || element.type === 'radio') {
+                                    formData[element.name] = element.checked;
+                                } else {
+                                    formData[element.name] = element.value;
+                                }
+                            }
                         }
+                        
+                        allFormData[`form_${index}`] = formData;
                     }
-                }
+                });
                 
-                allFormData[`form_${index}`] = formData;
-            });
-            
-            sessionStorage.setItem('formData', JSON.stringify(allFormData));
+                // Only store if we have valid data
+                if (Object.keys(allFormData).length > 0) {
+                    sessionStorage.setItem('formData', JSON.stringify(allFormData));
+                }
+            }
+        } catch (e) {
+            console.error('Error saving form data:', e);
+            // Clear any corrupted data
+            sessionStorage.removeItem('formData');
         }
     });
     
     // Restore form data from session storage after page load
-    if (sessionStorage.getItem('formData')) {
-        try {
-            const allFormData = JSON.parse(sessionStorage.getItem('formData'));
-            const forms = document.querySelectorAll('form');
-            
-            forms.forEach((form, index) => {
-                const formData = allFormData[`form_${index}`];
-                if (formData) {
-                    Object.keys(formData).forEach(name => {
-                        const element = form.elements[name];
-                        if (element) {
-                            if (element.type === 'checkbox' || element.type === 'radio') {
-                                element.checked = formData[name];
-                            } else {
-                                element.value = formData[name];
+    try {
+        const storedData = sessionStorage.getItem('formData');
+        if (storedData) {
+            const allFormData = JSON.parse(storedData);
+            if (allFormData && typeof allFormData === 'object') {
+                const forms = document.querySelectorAll('form');
+                
+                forms.forEach((form, index) => {
+                    const formKey = `form_${index}`;
+                    const formData = allFormData[formKey];
+                    
+                    if (form && formData && form.elements) {
+                        Object.keys(formData).forEach(name => {
+                            const element = form.elements[name];
+                            if (element) {
+                                if (element.type === 'checkbox' || element.type === 'radio') {
+                                    element.checked = formData[name];
+                                } else {
+                                    element.value = formData[name];
+                                }
                             }
-                        }
-                    });
-                }
-            });
-        } catch (e) {
-            console.error('Error restoring form data', e);
+                        });
+                    }
+                });
+            }
         }
+    } catch (e) {
+        console.error('Error restoring form data:', e);
+        // Clear corrupted data
+        sessionStorage.removeItem('formData');
     }
 });
