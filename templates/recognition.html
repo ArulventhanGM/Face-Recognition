@@ -24,6 +24,9 @@
                     <button id="startCamera" class="glass-button success">
                         <i class="fas fa-play"></i> Start Camera
                     </button>
+                    <button id="forceCamera" class="glass-button warning" style="display: none;">
+                        <i class="fas fa-laptop"></i> Force Laptop Camera
+                    </button>
                     <button id="stopCamera" class="glass-button danger" style="display: none;">
                         <i class="fas fa-stop"></i> Stop Camera
                     </button>
@@ -42,13 +45,17 @@
                     <p style="text-align: center; color: var(--text-secondary); padding: 20px;">Start recognition to see results</p>
                 </div>
                 
+                <div id="streamingStatus" class="streaming-active" style="display: none;">
+                    <i class="fas fa-circle"></i> Auto-Recognition Active
+                </div>
+                
                 <div class="glass-card" style="border-left: 3px solid var(--accent-teal);">
                     <i class="fas fa-info-circle" style="color: var(--accent-teal);"></i>
                     <strong style="color: var(--text-primary);">How to use:</strong>
                     <ul style="margin: 10px 0 0 0; padding-left: 20px; color: var(--text-secondary);">
                         <li>Click "Start Camera" to activate webcam</li>
-                        <li>Click "Start Recognition" for real-time detection</li>
-                        <li>Recognized students will appear on the right</li>
+                        <li>Faces will be automatically detected and recognized</li>
+                        <li>Or click "Start Recognition" for manual control</li>
                         <li>Click "Mark Attendance" to record presence</li>
                     </ul>
                 </div>

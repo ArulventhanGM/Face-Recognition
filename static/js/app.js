@@ -70,6 +70,12 @@ class FaceRecognitionApp {
             this.video.setAttribute('webkit-playsinline', 'true');  // For older iOS
             this.video.setAttribute('muted', 'true');
             this.video.muted = true;  // Ensure muted for autoplay
+            
+            // Add event listener for force laptop camera button
+            const forceCameraBtn = document.getElementById('forceCamera');
+            if (forceCameraBtn) {
+                forceCameraBtn.addEventListener('click', this.forceLaptopCamera.bind(this));
+            }
         }
 
         // Auto-hide alerts
@@ -83,6 +89,10 @@ class FaceRecognitionApp {
             console.warn('Not running in a secure context. Camera may not work.');
             this.showAlert('Warning: This page must be accessed via HTTPS for camera functionality.', 'warning', 10000);
         }
+        
+        // Check if device is likely a laptop or desktop based on user agent
+        this.isLaptop = /Windows NT|Macintosh|Linux/i.test(navigator.userAgent) && !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        console.log('Device appears to be a laptop/desktop:', this.isLaptop);
     }
 
     async startCamera() {
@@ -101,6 +111,9 @@ class FaceRecognitionApp {
                 this.stopCamera();
             }
             
+            // Enable auto face detection and recognition
+            this.autoDetectionEnabled = true;
+            
             // Check for camera permissions first
             try {
                 // Try permissions check if available
@@ -117,12 +130,26 @@ class FaceRecognitionApp {
                 // Continue anyway, getUserMedia will handle permissions
             }
             
+            // Show camera access guidance in the video container
+            this.showCameraAccessGuidance();
+            
             // Try to enumerate devices to check for cameras
             let videoDevices = [];
+            let hasAttemptedEnumeration = false;
+            
             try {
-                const devices = await navigator.mediaDevices.enumerateDevices();
+                // Add a timeout for the enumeration request
+                const enumerationPromise = navigator.mediaDevices.enumerateDevices();
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Enumeration timeout')), 3000)
+                );
+                
+                // Race between enumeration and timeout
+                const devices = await Promise.race([enumerationPromise, timeoutPromise]);
                 videoDevices = devices.filter(device => device.kind === 'videoinput');
-                console.log('Available video devices:', videoDevices.length);
+                hasAttemptedEnumeration = true;
+                
+                console.log('Available video devices:', videoDevices.length, videoDevices.map(d => d.label || 'Unnamed device'));
                 
                 if (videoDevices.length === 0) {
                     console.warn('No video devices found in enumeration');
@@ -135,28 +162,50 @@ class FaceRecognitionApp {
             
             // Progressive fallback for camera access
             const constraints = [
-                // First try: HD with specific parameters
-                {
-                    video: {
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 },
-                        facingMode: 'user'
-                    }
-                },
-                // Second try: Lower resolution
-                {
-                    video: {
-                        width: { ideal: 640 },
-                        height: { ideal: 480 },
-                        facingMode: 'user'
-                    }
-                },
-                // Third try: Very basic constraints
+                // First try: Very basic constraints (most compatible)
                 { video: true },
-                // Fourth try: Environment facing camera (rear camera on phones)
+                
+                // Second try: Front camera with auto resolution
+                {
+                    video: {
+                        facingMode: 'user'
+                    }
+                },
+                
+                // Third try: Rear camera (environment) 
                 {
                     video: {
                         facingMode: 'environment'
+                    }
+                },
+                
+                // Fourth try: Lower resolution
+                {
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                },
+                
+                // Fifth try: Specific device ID if we got one from enumeration
+                ...(videoDevices.length > 0 ? [{ 
+                    video: { 
+                        deviceId: { exact: videoDevices[0].deviceId } 
+                    } 
+                }] : []),
+                
+                // Sixth try: Force exact resolution
+                {
+                    video: {
+                        width: { exact: 320 },
+                        height: { exact: 240 }
+                    }
+                },
+                
+                // Last resort: Try with different framerates
+                {
+                    video: {
+                        frameRate: { ideal: 10 }
                     }
                 }
             ];
@@ -212,6 +261,7 @@ class FaceRecognitionApp {
                 console.log('Video playback started');
                 this.updateCameraControls(true);
                 this.hideLoading('startCamera');
+                this.clearCameraGuidance();
                 this.showAlert('Camera started successfully', 'success');
                 
                 // Log camera details for debugging
@@ -225,66 +275,285 @@ class FaceRecognitionApp {
             console.error('Error starting camera:', error);
             this.hideLoading('startCamera');
             
+            // Detailed logging for diagnostic purposes
+            console.log('Browser:', navigator.userAgent);
+            console.log('Error name:', error.name);
+            console.log('Error message:', error.message);
+            
             let errorMessage = 'Failed to start camera.';
-            if (error.name === 'NotFoundError') {
-                errorMessage = 'No camera found. Please make sure a camera is connected to your device.';
+            
+            // First try a special case for insecure contexts
+            if (window.isSecureContext === false) {
+                errorMessage = 'Camera access requires a secure connection (HTTPS). Please use a secure connection.';
+                this.showAlert(errorMessage, 'error', 10000);
                 this.showCameraTroubleshooting();
-            } else if (error.name === 'NotAllowedError') {
-                errorMessage = 'Camera access denied. Please allow camera access in your browser settings.';
-                this.showPermissionTroubleshooting();
-            } else if (error.name === 'NotReadableError') {
-                errorMessage = 'Camera is already in use by another application. Please close any other apps using your camera.';
-            } else if (error.name === 'OverconstrainedError') {
-                errorMessage = 'Your camera does not support the required settings.';
-            } else if (error.name === 'AbortError') {
-                errorMessage = 'Camera access was aborted. Please try again.';
-            } else if (error.name === 'SecurityError') {
-                errorMessage = 'Camera access blocked due to security restrictions. Please use HTTPS.';
-            } else if (error.message && error.message.includes('permission')) {
-                errorMessage = 'Camera permission denied. Please allow camera access in your browser settings.';
-                this.showPermissionTroubleshooting();
+                return;
+            }
+            
+            // Mark that the camera failed to initialize
+            this.cameraFailed = true;
+            
+            // Handle specific error types
+            switch(error.name) {
+                case 'NotFoundError':
+                    errorMessage = 'No camera found. Please make sure a camera is connected to your device.';
+                    
+                    // If device is likely a laptop, suggest using the Force Laptop Camera button
+                    if (this.isLaptop) {
+                        errorMessage += ' Try the "Force Laptop Camera" button below.';
+                        const forceBtn = document.getElementById('forceCamera');
+                        if (forceBtn) {
+                            forceBtn.style.display = 'inline-flex';
+                        }
+                    }
+                    
+                    this.showCameraTroubleshooting();
+                    break;
+                    
+                case 'NotAllowedError':
+                    errorMessage = 'Camera access denied. Please allow camera access in your browser settings.';
+                    this.showPermissionTroubleshooting();
+                    break;
+                    
+                case 'NotReadableError':
+                    errorMessage = 'Camera is in use by another application or not functioning properly.';
+                    this.showCameraTroubleshooting();
+                    break;
+                    
+                case 'OverconstrainedError':
+                    errorMessage = 'Camera does not support the requested settings.';
+                    this.showCameraTroubleshooting();
+                    break;
+                    
+                case 'AbortError':
+                    errorMessage = 'Camera access was aborted. Please try again.';
+                    this.showAlert(errorMessage, 'warning', 5000);
+                    // Automatically retry after a short delay
+                    setTimeout(() => {
+                        this.startCamera();
+                    }, 2000);
+                    return;
+                    
+                case 'SecurityError':
+                    errorMessage = 'Camera access blocked due to security restrictions. Please use HTTPS.';
+                    this.showCameraTroubleshooting();
+                    break;
+                    
+                case 'TypeError':
+                    // This can happen when mediaDevices is undefined (old browsers or private mode in Safari)
+                    errorMessage = 'Your browser does not support camera access or has restricted it.';
+                    this.showCameraTroubleshooting();
+                    break;
+                    
+                default:
+                    // Check for permission-related errors in the message
+                    if (error.message && (
+                        error.message.includes('permission') || 
+                        error.message.includes('denied') ||
+                        error.message.includes('not allowed')
+                    )) {
+                        errorMessage = 'Camera permission denied. Please allow camera access in your browser settings.';
+                        this.showPermissionTroubleshooting();
+                    } else {
+                        // Generic error - show the troubleshooting guide
+                        this.showCameraTroubleshooting();
+                    }
             }
             
             this.showAlert(errorMessage, 'error', 10000);
+            
+            // Clear the access guidance from the overlay
+            this.clearCameraGuidance();
+        }
+    }
+    
+    showCameraAccessGuidance() {
+        if (this.video) {
+            // Add instructions directly to the video container
+            const overlay = document.getElementById('cameraOverlay');
+            if (overlay) {
+                overlay.innerHTML = `
+                    <div class="camera-access-guide">
+                        <div class="camera-icon">
+                            <i class="fas fa-video"></i>
+                        </div>
+                        <p>Attempting to access camera...</p>
+                        <p class="small">Click "Allow" when prompted</p>
+                    </div>
+                `;
+            }
+        }
+    }
+    
+    clearCameraGuidance() {
+        const overlay = document.getElementById('cameraOverlay');
+        if (overlay) {
+            overlay.innerHTML = '';
         }
     }
     
     showCameraTroubleshooting() {
+        this.clearCameraGuidance();
+        
+        // Add warning icon to video overlay
+        const overlay = document.getElementById('cameraOverlay');
+        if (overlay) {
+            overlay.innerHTML = `
+                <div class="camera-error-overlay">
+                    <div class="camera-error-icon">
+                        <i class="fas fa-video-slash"></i>
+                    </div>
+                    <p>Camera not found</p>
+                    <p class="small">Check troubleshooting guide below</p>
+                </div>
+            `;
+        }
+        
         const resultsPanel = document.getElementById('realTimeResults');
         if (resultsPanel) {
             resultsPanel.innerHTML = `
                 <div class="troubleshooting-guide">
-                    <h4>Camera Troubleshooting</h4>
+                    <h4>Camera Troubleshooting Guide</h4>
                     <ul>
-                        <li>Make sure your camera is properly connected</li>
-                        <li>Verify no other application is using your camera</li>
-                        <li>Try refreshing the page</li>
-                        <li>Try a different browser (Chrome or Firefox recommended)</li>
-                        <li>On Windows, check Device Manager to ensure camera is working</li>
-                        <li>On Mac, check System Preferences > Security & Privacy</li>
+                        <li><strong>Check camera connection:</strong> Make sure your webcam is properly connected to your computer</li>
+                        <li><strong>Close other applications:</strong> Programs like Zoom, Teams, or Skype may be using your camera</li>
+                        <li><strong>Restart your browser:</strong> Close and reopen your browser completely</li>
+                        <li><strong>Try incognito/private mode:</strong> This bypasses extensions that might block camera access</li>
+                        <li><strong>Check Windows settings:</strong> Go to Windows Settings > Privacy > Camera and ensure access is on</li>
+                        <li><strong>Check Device Manager:</strong> Ensure your camera is working properly in Device Manager</li>
+                        <li><strong>Try another browser:</strong> Chrome and Firefox have the best webcam support</li>
+                        <li><strong>Test your camera:</strong> Try <a href="https://webcamtests.com/" target="_blank">webcamtests.com</a> to verify your camera works</li>
                     </ul>
+                    <div class="action-buttons">
+                        <button class="glass-button primary" onclick="window.location.reload()">
+                            <i class="fas fa-sync"></i> Refresh Page
+                        </button>
+                        <button class="glass-button" id="retryCamera">
+                            <i class="fas fa-redo"></i> Try Again
+                        </button>
+                    </div>
                 </div>
             `;
+            
+            // Add event listener to retry button
+            setTimeout(() => {
+                const retryButton = document.getElementById('retryCamera');
+                if (retryButton) {
+                    retryButton.addEventListener('click', () => {
+                        this.startCamera();
+                    });
+                }
+            }, 100);
         }
     }
     
     showPermissionTroubleshooting() {
+        this.clearCameraGuidance();
+        
+        // Add permission icon to video overlay
+        const overlay = document.getElementById('cameraOverlay');
+        if (overlay) {
+            overlay.innerHTML = `
+                <div class="camera-error-overlay">
+                    <div class="camera-error-icon">
+                        <i class="fas fa-user-slash"></i>
+                    </div>
+                    <p>Permission Denied</p>
+                    <p class="small">Camera access blocked</p>
+                </div>
+            `;
+        }
+        
         const resultsPanel = document.getElementById('realTimeResults');
         if (resultsPanel) {
             resultsPanel.innerHTML = `
                 <div class="troubleshooting-guide">
                     <h4>Camera Permission Guide</h4>
-                    <p>Your browser is blocking camera access. To fix:</p>
+                    <p>Your browser is blocking camera access. Follow these steps:</p>
                     <ul>
-                        <li>Look for the camera icon in your address bar</li>
-                        <li>Click it and select "Allow" for camera access</li>
-                        <li>Refresh this page after changing permissions</li>
-                        <li>In Chrome: Settings > Privacy and Security > Site Settings > Camera</li>
-                        <li>In Firefox: Preferences > Privacy & Security > Permissions > Camera</li>
-                        <li>In Edge: Settings > Site Permissions > Camera</li>
+                        <li><strong>Check address bar:</strong> Look for a camera icon <i class="fas fa-video"></i> or blocked icon <i class="fas fa-times-circle"></i></li>
+                        <li><strong>Allow camera access:</strong> Click the icon and select "Allow" for camera access</li>
+                        <li><strong>Chrome settings:</strong> Click the lock/info icon in address bar → Site settings → Allow camera</li>
+                        <li><strong>Reset permissions:</strong> Chrome: Settings → Privacy and security → Site Settings → Camera</li>
+                        <li><strong>Firefox:</strong> Click the shield icon → Permissions → Camera → Allow</li>
+                        <li><strong>Edge:</strong> Settings → Cookies and site permissions → Camera</li>
                     </ul>
+                    <div class="permission-icons">
+                        <div class="permission-icon">
+                            <img src="https://www.gstatic.com/images/icons/material/system/2x/camera_alt_grey600_24dp.png" alt="Chrome permission">
+                            <span>Chrome</span>
+                        </div>
+                        <div class="permission-icon">
+                            <img src="https://support.mozilla.org/media/uploads/gallery/images/2019-02-20-13-26-11-97329a.png" alt="Firefox permission" width="40">
+                            <span>Firefox</span>
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="glass-button primary" onclick="window.location.reload()">
+                            <i class="fas fa-sync"></i> Refresh Page
+                        </button>
+                    </div>
                 </div>
             `;
+        }
+    }
+    
+    showSystemTroubleshooting() {
+        this.clearCameraGuidance();
+        
+        // Add warning icon to video overlay
+        const overlay = document.getElementById('cameraOverlay');
+        if (overlay) {
+            overlay.innerHTML = `
+                <div class="camera-error-overlay">
+                    <div class="camera-error-icon">
+                        <i class="fas fa-laptop-medical"></i>
+                    </div>
+                    <p>Laptop Camera Issue</p>
+                    <p class="small">System access problem</p>
+                </div>
+            `;
+        }
+        
+        const resultsPanel = document.getElementById('realTimeResults');
+        if (resultsPanel) {
+            resultsPanel.innerHTML = `
+                <div class="troubleshooting-guide">
+                    <h4>Laptop Camera Troubleshooting</h4>
+                    <p>Your built-in laptop camera could not be accessed. Please try these steps:</p>
+                    <ul>
+                        <li><strong>Check camera privacy settings:</strong>
+                            <ul>
+                                <li>Windows: Start > Settings > Privacy > Camera > Make sure "Allow apps to access your camera" is ON</li>
+                                <li>Mac: System Preferences > Security & Privacy > Camera > Allow browser access</li>
+                            </ul>
+                        </li>
+                        <li><strong>Check device manager:</strong> Make sure your camera is not disabled in Device Manager</li>
+                        <li><strong>Check physical camera:</strong> Some laptops have a physical switch or Fn key to enable/disable the camera</li>
+                        <li><strong>Restart your computer:</strong> Sometimes a full restart can fix camera detection issues</li>
+                        <li><strong>Update drivers:</strong> Make sure your camera drivers are up-to-date</li>
+                        <li><strong>Try another browser:</strong> Sometimes camera access works better in different browsers</li>
+                    </ul>
+                    <div class="action-buttons">
+                        <button class="glass-button primary" onclick="window.location.reload()">
+                            <i class="fas fa-sync"></i> Refresh Page
+                        </button>
+                        <button class="glass-button" id="retryForceCamera">
+                            <i class="fas fa-redo"></i> Try Again
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            // Add event listener to retry button
+            setTimeout(() => {
+                const retryButton = document.getElementById('retryForceCamera');
+                if (retryButton) {
+                    retryButton.addEventListener('click', () => {
+                        this.forceLaptopCamera();
+                    });
+                }
+            }, 100);
         }
     }
 
@@ -309,8 +578,11 @@ class FaceRecognitionApp {
                 this.video.srcObject = null;
             }
 
+            // Stop face detection and recognition
+            this.stopFaceDetection();
             this.stopRecognition();
             this.updateCameraControls(false);
+            this.autoDetectionEnabled = false;
             this.showAlert('Camera stopped', 'info');
             
             // Clear any troubleshooting guides
@@ -862,11 +1134,29 @@ class FaceRecognitionApp {
         const stopBtn = document.getElementById('stopCamera');
         const captureBtn = document.getElementById('capturePhoto');
         const toggleRecognitionBtn = document.getElementById('toggleRecognition');
+        const forceBtn = document.getElementById('forceCamera');
         
         // Update button visibility
         if (startBtn) {
             startBtn.style.display = isActive ? 'none' : 'inline-flex';
             startBtn.classList.toggle('disabled', isActive);
+        }
+        
+        // If camera is active and auto detection is enabled, start face detection
+        if (isActive && this.autoDetectionEnabled) {
+            // Start face detection after a short delay to let camera stabilize
+            setTimeout(() => {
+                this.startFaceDetection();
+            }, 1000);
+        }
+        
+        // Show force camera button only when regular camera fails
+        if (forceBtn) {
+            if (this.cameraFailed && !isActive) {
+                forceBtn.style.display = 'inline-flex';
+            } else {
+                forceBtn.style.display = 'none';
+            }
         }
         
         if (stopBtn) {
@@ -897,6 +1187,248 @@ class FaceRecognitionApp {
         
         // Log current state for debugging
         console.log(`Camera controls updated: isActive=${isActive}`);
+    }
+    
+    startFaceDetection() {
+        // Don't start if already running or camera is not active
+        if (this.faceDetectionInterval || !this.video || !this.stream) {
+            return;
+        }
+        
+        console.log('Starting automatic face detection...');
+        
+        // Create face detection status element if it doesn't exist
+        const container = document.getElementById('realTimeResults');
+        if (container) {
+            // Add auto-detection class to parent for styling
+            container.parentElement.classList.add('auto-detection-active');
+            
+            container.innerHTML = `
+                <div class="detection-status">
+                    <div class="detection-icon">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <p>Scanning for faces...</p>
+                    <div class="detection-indicator"></div>
+                </div>
+            `;
+            
+            // Show streaming status
+            const streamingStatus = document.getElementById('streamingStatus');
+            if (streamingStatus) {
+                streamingStatus.style.display = 'flex';
+            }
+        }
+        
+        // Start the face detection loop
+        this.faceDetectionInterval = setInterval(() => {
+            this.detectFace();
+        }, 500); // Check for faces every 500ms
+    }
+    
+    stopFaceDetection() {
+        if (this.faceDetectionInterval) {
+            clearInterval(this.faceDetectionInterval);
+            this.faceDetectionInterval = null;
+            console.log('Face detection stopped');
+        }
+        
+        // Also stop recognition if it was started automatically
+        if (this.isRecognitionActive && this.autoStartedRecognition) {
+            this.stopRecognition();
+            this.autoStartedRecognition = false;
+        }
+        
+        // Hide streaming status
+        const streamingStatus = document.getElementById('streamingStatus');
+        if (streamingStatus) {
+            streamingStatus.style.display = 'none';
+        }
+        
+        // Remove auto-detection class
+        const resultsContainer = document.getElementById('realTimeResults');
+        if (resultsContainer && resultsContainer.parentElement) {
+            resultsContainer.parentElement.classList.remove('auto-detection-active');
+        }
+    }
+    
+    async detectFace() {
+        if (!this.video || !this.stream || !this.autoDetectionEnabled) return;
+        
+        try {
+            this.canvas.width = this.video.videoWidth;
+            this.canvas.height = this.video.videoHeight;
+            this.context.drawImage(this.video, 0, 0);
+            
+            // Send minimal data for face detection only (not full recognition)
+            const imageData = this.canvas.toDataURL('image/jpeg', 0.3);
+            
+            const response = await fetch('/detect_faces', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ image: imageData })
+            });
+            
+            const result = await response.json();
+            
+            // Update detection status
+            const indicator = document.querySelector('.detection-indicator');
+            const statusText = document.querySelector('.detection-status p');
+            
+            if (result.success && result.faces_detected > 0) {
+                // Face detected - update UI and start recognition if not already running
+                if (indicator) {
+                    indicator.classList.add('active');
+                }
+                if (statusText) {
+                    statusText.textContent = `${result.faces_detected} face(s) detected - Starting recognition...`;
+                }
+                
+                // Automatically start recognition if not already running
+                if (!this.isRecognitionActive) {
+                    console.log('Face detected, starting recognition automatically');
+                    
+                    // Add visual feedback
+                    const overlay = document.getElementById('cameraOverlay');
+                    if (overlay) {
+                        overlay.innerHTML = `
+                            <div class="face-detected-flash"></div>
+                        `;
+                        setTimeout(() => {
+                            if (overlay) overlay.innerHTML = '';
+                        }, 800);
+                    }
+                    
+                    this.startRecognition();
+                    this.autoStartedRecognition = true;
+                    
+                    // Update streaming status text
+                    const streamingStatus = document.getElementById('streamingStatus');
+                    if (streamingStatus) {
+                        streamingStatus.innerHTML = `<i class="fas fa-circle"></i> Face Detected - Recognition Active`;
+                    }
+                }
+            } else {
+                // No face detected
+                if (indicator) {
+                    indicator.classList.remove('active');
+                }
+                if (statusText) {
+                    statusText.textContent = 'Scanning for faces...';
+                }
+                
+                // If recognition was auto-started but now no faces are visible, stop it after a delay
+                if (this.autoStartedRecognition && this.isRecognitionActive && this.noFaceCounter === undefined) {
+                    this.noFaceCounter = 0;
+                } else if (this.autoStartedRecognition && this.isRecognitionActive) {
+                    this.noFaceCounter++;
+                    
+                    // Stop recognition after 5 seconds (10 checks × 500ms) of no faces
+                    if (this.noFaceCounter > 10) {
+                        this.stopRecognition();
+                        this.autoStartedRecognition = false;
+                        this.noFaceCounter = undefined;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error in face detection:', error);
+        }
+    }
+    
+    // Method to force access to laptop camera with simplified constraints
+    async forceLaptopCamera() {
+        try {
+            this.showLoading('forceCamera');
+            console.log('Forcing laptop camera access with simplified constraints...');
+            
+            // Reset any previous stream
+            if (this.stream) {
+                this.stopCamera();
+            }
+            
+            this.showAlert('Attempting to access built-in laptop camera...', 'info');
+            
+            // Add special visual indicator
+            const overlay = document.getElementById('cameraOverlay');
+            if (overlay) {
+                overlay.innerHTML = `
+                    <div class="camera-access-guide">
+                        <div class="camera-icon">
+                            <i class="fas fa-laptop"></i>
+                        </div>
+                        <p>Accessing built-in camera...</p>
+                        <p class="small">This might take a few moments</p>
+                    </div>
+                `;
+            }
+            
+            // Use extremely basic constraints optimized for laptop cameras
+            const laptopConstraints = {
+                audio: false,
+                video: {
+                    width: { ideal: 320 },
+                    height: { ideal: 240 },
+                    frameRate: { max: 15 }
+                }
+            };
+            
+            console.log('Using basic laptop camera constraints:', laptopConstraints);
+            this.stream = await navigator.mediaDevices.getUserMedia(laptopConstraints);
+            
+            if (this.video) {
+                console.log('Connecting stream to video element');
+                this.video.srcObject = this.stream;
+                
+                // Create a promise for video loaded with extended timeout
+                const playPromise = new Promise((resolve, reject) => {
+                    this.video.onloadedmetadata = () => {
+                        console.log('Video metadata loaded, attempting to play');
+                        this.video.play()
+                            .then(() => resolve())
+                            .catch(err => {
+                                console.error('Error playing video:', err);
+                                reject(err);
+                            });
+                    };
+                    
+                    this.video.onerror = (err) => {
+                        console.error('Video element error:', err);
+                        reject(err);
+                    };
+                    
+                    // Extended timeout for laptop cameras
+                    setTimeout(() => {
+                        reject(new Error('Video loading timeout'));
+                    }, 15000);
+                });
+                
+                await playPromise;
+                
+                console.log('Laptop camera video playback started');
+                this.updateCameraControls(true);
+                this.hideLoading('forceCamera');
+                this.clearCameraGuidance();
+                this.showAlert('Laptop camera started successfully', 'success');
+                
+                // Reset camera failed flag
+                this.cameraFailed = false;
+                
+                // Log camera details for debugging
+                const tracks = this.stream.getVideoTracks();
+                if (tracks.length > 0) {
+                    const settings = tracks[0].getSettings();
+                    console.log('Active laptop camera settings:', settings);
+                }
+            }
+        } catch (error) {
+            console.error('Error forcing laptop camera:', error);
+            this.hideLoading('forceCamera');
+            this.showAlert('Could not access laptop camera. Please check your system settings.', 'error', 10000);
+            this.showSystemTroubleshooting();
+        }
     }
 
     updateRecognitionButton() {

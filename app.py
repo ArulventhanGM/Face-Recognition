@@ -8,6 +8,7 @@ import base64
 import pandas as pd
 import time
 from datetime import datetime, timedelta
+
 import logging
 from collections import Counter
 
@@ -1967,6 +1968,42 @@ def api_face_detection_stats():
 def file_too_large(error):
     flash('File too large. Maximum size is 16MB.', 'error')
     return redirect(request.url)
+
+
+@app.route('/detect_faces', methods=['POST'])
+@login_required
+def detect_faces():
+    """Lightweight face detection endpoint for automatic UI updates
+    This endpoint only detects faces without performing full recognition,
+    making it faster and more efficient for continuous monitoring."""
+    try:
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({'success': False, 'message': 'No image data'})
+
+        # Decode base64 image
+        image = decode_base64_image(data['image'])
+        if image is None:
+            return jsonify({'success': False, 'message': 'Invalid image data'})
+
+        # Get face recognizer for detection only
+        face_recognizer = get_face_recognizer()
+        
+        # Only perform face detection without recognition
+        face_locations = face_recognizer.detect_faces(image)
+        
+        response = {
+            'success': True,
+            'faces_detected': len(face_locations),
+            'face_locations': face_locations
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error in face detection: {e}")
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'})
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

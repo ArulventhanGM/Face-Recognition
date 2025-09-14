@@ -1070,12 +1070,77 @@ output {
     right: 0;
     bottom: 0;
     z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 10px;
     pointer-events: none;
+}
+
+.camera-access-guide {
+    text-align: center;
+    color: white;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 20px;
+    border-radius: 10px;
+    max-width: 80%;
+}
+
+.camera-icon {
+    font-size: 40px;
+    color: #00b9c7;
+    margin-bottom: 15px;
+    animation: pulse 2s infinite;
+}
+
+.camera-error-overlay {
+    text-align: center;
+    color: white;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 20px;
+    border-radius: 10px;
+    max-width: 80%;
+}
+
+.camera-error-icon {
+    font-size: 40px;
+    color: #ff3b3b;
+    margin-bottom: 15px;
+}
+
+.camera-access-guide p,
+.camera-error-overlay p {
+    margin: 5px 0;
+    font-size: 16px;
+}
+
+.camera-access-guide p.small,
+.camera-error-overlay p.small {
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.1); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 1; }
 }
 
 .glass-button.disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.glass-button.warning {
+    background: linear-gradient(135deg, rgba(255, 153, 0, 0.2), rgba(255, 153, 0, 0.05));
+    border: 1px solid rgba(255, 153, 0, 0.3);
+    color: #ff9900;
+}
+
+.glass-button.warning:hover {
+    background: linear-gradient(135deg, rgba(255, 153, 0, 0.3), rgba(255, 153, 0, 0.1));
+    border: 1px solid rgba(255, 153, 0, 0.5);
 }
 
 /* Troubleshooting Guide Styles */
@@ -1119,4 +1184,37 @@ output {
 .troubleshooting-guide p {
     margin-bottom: 10px;
     color: rgba(255, 255, 255, 0.8);
+}
+
+.action-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 20px;
+}
+
+.permission-icons {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    margin: 20px 0;
+}
+
+.permission-icon {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.permission-icon img {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    margin-bottom: 5px;
+}
+
+.permission-icon span {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
 }
