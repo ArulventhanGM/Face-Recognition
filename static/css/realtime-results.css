@@ -1,0 +1,111 @@
+/*
+ * Real-time Results Streaming Styles
+ */
+
+/* Animated entry for real-time results */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in {
+    animation: fadeInUp 0.3s ease-out forwards;
+}
+
+/* Real-time streaming notification */
+.streaming-active {
+    color: var(--accent-teal);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 10px;
+    padding: 5px 10px;
+    background: rgba(var(--accent-teal-rgb), 0.1);
+    border-radius: 4px;
+    width: fit-content;
+}
+
+.streaming-active i {
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0.6;
+    }
+}
+
+/* Confidence meter */
+.confidence-display {
+    margin: 5px 0 8px;
+}
+
+.confidence-bar {
+    height: 4px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 5px;
+}
+
+.confidence-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s ease-in-out;
+}
+
+.confidence-fill.bg-success {
+    background: linear-gradient(to right, rgba(var(--accent-teal-rgb), 0.7), var(--accent-teal));
+}
+
+.confidence-fill.bg-warning {
+    background: linear-gradient(to right, rgba(var(--accent-yellow-rgb), 0.7), var(--accent-yellow));
+}
+
+.confidence-fill.bg-danger {
+    background: linear-gradient(to right, rgba(var(--accent-red-rgb), 0.7), var(--accent-red));
+}
+
+/* When auto-detection is active */
+.auto-detection-active .detection-status {
+    border-left: 3px solid var(--accent-teal);
+}
+
+/* Face detected flash effect */
+@keyframes faceDetectedFlash {
+    0% {
+        opacity: 0;
+    }
+    30% {
+        opacity: 0.5;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+.face-detected-flash {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border: 2px solid var(--accent-teal);
+    border-radius: 10px;
+    background-color: rgba(var(--accent-teal-rgb), 0.2);
+    animation: faceDetectedFlash 0.8s ease-out;
+    pointer-events: none;
+}

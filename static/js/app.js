@@ -64,6 +64,18 @@ class FaceRecognitionApp {
         if (this.video) {
             this.canvas = document.createElement('canvas');
             this.context = this.canvas.getContext('2d');
+            
+            // Set additional video attributes for better compatibility
+            this.video.setAttribute('playsinline', 'true');  // Important for iOS Safari
+            this.video.setAttribute('webkit-playsinline', 'true');  // For older iOS
+            this.video.setAttribute('muted', 'true');
+            this.video.muted = true;  // Ensure muted for autoplay
+            
+            // Add event listener for force laptop camera button
+            const forceCameraBtn = document.getElementById('forceCamera');
+            if (forceCameraBtn) {
+                forceCameraBtn.addEventListener('click', this.forceLaptopCamera.bind(this));
+            }
         }
 
         // Auto-hide alerts
@@ -71,51 +83,516 @@ class FaceRecognitionApp {
         
         // Initialize tooltips if needed
         this.initializeTooltips();
+        
+        // Check for secure context - required for camera access in modern browsers
+        if (this.video && !window.isSecureContext) {
+            console.warn('Not running in a secure context. Camera may not work.');
+            this.showAlert('Warning: This page must be accessed via HTTPS for camera functionality.', 'warning', 10000);
+        }
+        
+        // Check if device is likely a laptop or desktop based on user agent
+        this.isLaptop = /Windows NT|Macintosh|Linux/i.test(navigator.userAgent) && !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        console.log('Device appears to be a laptop/desktop:', this.isLaptop);
     }
 
     async startCamera() {
+        // Check if browser supports getUserMedia
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            this.showAlert('Your browser does not support camera access. Please use Chrome, Firefox, or Edge.', 'error');
+            return;
+        }
+        
         try {
             this.showLoading('startCamera');
+            console.log('Starting camera initialization...');
             
-            const constraints = {
-                video: {
-                    width: { ideal: 640 },
-                    height: { ideal: 480 },
-                    facingMode: 'user'
+            // Reset any previous stream
+            if (this.stream) {
+                this.stopCamera();
+            }
+            
+            // Enable auto face detection and recognition
+            this.autoDetectionEnabled = true;
+            
+            // Check for camera permissions first
+            try {
+                // Try permissions check if available
+                if (navigator.permissions && navigator.permissions.query) {
+                    const permissionStatus = await navigator.permissions.query({ name: 'camera' });
+                    console.log('Camera permission status:', permissionStatus.state);
+                    
+                    if (permissionStatus.state === 'denied') {
+                        throw new Error('Camera permission denied');
+                    }
                 }
-            };
-
-            this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+            } catch (permError) {
+                console.log('Permission check failed, continuing anyway:', permError);
+                // Continue anyway, getUserMedia will handle permissions
+            }
             
+            // Show camera access guidance in the video container
+            this.showCameraAccessGuidance();
+            
+            // Try to enumerate devices to check for cameras
+            let videoDevices = [];
+            let hasAttemptedEnumeration = false;
+            
+            try {
+                // Add a timeout for the enumeration request
+                const enumerationPromise = navigator.mediaDevices.enumerateDevices();
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Enumeration timeout')), 3000)
+                );
+                
+                // Race between enumeration and timeout
+                const devices = await Promise.race([enumerationPromise, timeoutPromise]);
+                videoDevices = devices.filter(device => device.kind === 'videoinput');
+                hasAttemptedEnumeration = true;
+                
+                console.log('Available video devices:', videoDevices.length, videoDevices.map(d => d.label || 'Unnamed device'));
+                
+                if (videoDevices.length === 0) {
+                    console.warn('No video devices found in enumeration');
+                    // We'll still try getUserMedia as enumeration might be limited without permission
+                }
+            } catch (enumError) {
+                console.warn('Could not enumerate devices:', enumError);
+                // Continue anyway, as some browsers may not allow enumeration without permission
+            }
+            
+            // Progressive fallback for camera access
+            const constraints = [
+                // First try: Very basic constraints (most compatible)
+                { video: true },
+                
+                // Second try: Front camera with auto resolution
+                {
+                    video: {
+                        facingMode: 'user'
+                    }
+                },
+                
+                // Third try: Rear camera (environment) 
+                {
+                    video: {
+                        facingMode: 'environment'
+                    }
+                },
+                
+                // Fourth try: Lower resolution
+                {
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                },
+                
+                // Fifth try: Specific device ID if we got one from enumeration
+                ...(videoDevices.length > 0 ? [{ 
+                    video: { 
+                        deviceId: { exact: videoDevices[0].deviceId } 
+                    } 
+                }] : []),
+                
+                // Sixth try: Force exact resolution
+                {
+                    video: {
+                        width: { exact: 320 },
+                        height: { exact: 240 }
+                    }
+                },
+                
+                // Last resort: Try with different framerates
+                {
+                    video: {
+                        frameRate: { ideal: 10 }
+                    }
+                }
+            ];
+            
+            // Try each constraint in sequence until one works
+            let stream = null;
+            let lastError = null;
+            
+            for (let i = 0; i < constraints.length; i++) {
+                try {
+                    console.log(`Trying camera constraints option ${i+1}:`, constraints[i]);
+                    stream = await navigator.mediaDevices.getUserMedia(constraints[i]);
+                    console.log(`Successfully got stream with option ${i+1}`);
+                    break; // Success!
+                } catch (error) {
+                    console.warn(`Option ${i+1} failed:`, error);
+                    lastError = error;
+                    // Continue to next constraint option
+                }
+            }
+            
+            if (!stream) {
+                throw lastError || new Error('Could not access any camera');
+            }
+            
+            this.stream = stream;
+            
+            // Connect stream to video element
             if (this.video) {
+                console.log('Connecting stream to video element');
                 this.video.srcObject = this.stream;
-                this.video.onloadedmetadata = () => {
-                    this.video.play();
-                    this.updateCameraControls(true);
-                    this.hideLoading('startCamera');
-                    this.showAlert('Camera started successfully', 'success');
-                };
+                
+                // Create a promise for video loaded
+                const playPromise = new Promise((resolve, reject) => {
+                    this.video.onloadedmetadata = () => {
+                        this.video.play()
+                            .then(() => resolve())
+                            .catch(err => reject(err));
+                    };
+                    
+                    this.video.onerror = (err) => {
+                        reject(err);
+                    };
+                    
+                    // Set a timeout in case onloadedmetadata never fires
+                    setTimeout(() => {
+                        reject(new Error('Video loading timeout'));
+                    }, 10000);
+                });
+                
+                await playPromise;
+                
+                console.log('Video playback started');
+                this.updateCameraControls(true);
+                this.hideLoading('startCamera');
+                this.clearCameraGuidance();
+                this.showAlert('Camera started successfully', 'success');
+                
+                // Log camera details for debugging
+                const tracks = this.stream.getVideoTracks();
+                if (tracks.length > 0) {
+                    const settings = tracks[0].getSettings();
+                    console.log('Active camera settings:', settings);
+                }
             }
         } catch (error) {
             console.error('Error starting camera:', error);
             this.hideLoading('startCamera');
-            this.showAlert('Failed to start camera. Please check permissions.', 'error');
+            
+            // Detailed logging for diagnostic purposes
+            console.log('Browser:', navigator.userAgent);
+            console.log('Error name:', error.name);
+            console.log('Error message:', error.message);
+            
+            let errorMessage = 'Failed to start camera.';
+            
+            // First try a special case for insecure contexts
+            if (window.isSecureContext === false) {
+                errorMessage = 'Camera access requires a secure connection (HTTPS). Please use a secure connection.';
+                this.showAlert(errorMessage, 'error', 10000);
+                this.showCameraTroubleshooting();
+                return;
+            }
+            
+            // Mark that the camera failed to initialize
+            this.cameraFailed = true;
+            
+            // Handle specific error types
+            switch(error.name) {
+                case 'NotFoundError':
+                    errorMessage = 'No camera found. Please make sure a camera is connected to your device.';
+                    
+                    // If device is likely a laptop, suggest using the Force Laptop Camera button
+                    if (this.isLaptop) {
+                        errorMessage += ' Try the "Force Laptop Camera" button below.';
+                        const forceBtn = document.getElementById('forceCamera');
+                        if (forceBtn) {
+                            forceBtn.style.display = 'inline-flex';
+                        }
+                    }
+                    
+                    this.showCameraTroubleshooting();
+                    break;
+                    
+                case 'NotAllowedError':
+                    errorMessage = 'Camera access denied. Please allow camera access in your browser settings.';
+                    this.showPermissionTroubleshooting();
+                    break;
+                    
+                case 'NotReadableError':
+                    errorMessage = 'Camera is in use by another application or not functioning properly.';
+                    this.showCameraTroubleshooting();
+                    break;
+                    
+                case 'OverconstrainedError':
+                    errorMessage = 'Camera does not support the requested settings.';
+                    this.showCameraTroubleshooting();
+                    break;
+                    
+                case 'AbortError':
+                    errorMessage = 'Camera access was aborted. Please try again.';
+                    this.showAlert(errorMessage, 'warning', 5000);
+                    // Automatically retry after a short delay
+                    setTimeout(() => {
+                        this.startCamera();
+                    }, 2000);
+                    return;
+                    
+                case 'SecurityError':
+                    errorMessage = 'Camera access blocked due to security restrictions. Please use HTTPS.';
+                    this.showCameraTroubleshooting();
+                    break;
+                    
+                case 'TypeError':
+                    // This can happen when mediaDevices is undefined (old browsers or private mode in Safari)
+                    errorMessage = 'Your browser does not support camera access or has restricted it.';
+                    this.showCameraTroubleshooting();
+                    break;
+                    
+                default:
+                    // Check for permission-related errors in the message
+                    if (error.message && (
+                        error.message.includes('permission') || 
+                        error.message.includes('denied') ||
+                        error.message.includes('not allowed')
+                    )) {
+                        errorMessage = 'Camera permission denied. Please allow camera access in your browser settings.';
+                        this.showPermissionTroubleshooting();
+                    } else {
+                        // Generic error - show the troubleshooting guide
+                        this.showCameraTroubleshooting();
+                    }
+            }
+            
+            this.showAlert(errorMessage, 'error', 10000);
+            
+            // Clear the access guidance from the overlay
+            this.clearCameraGuidance();
+        }
+    }
+    
+    showCameraAccessGuidance() {
+        if (this.video) {
+            // Add instructions directly to the video container
+            const overlay = document.getElementById('cameraOverlay');
+            if (overlay) {
+                overlay.innerHTML = `
+                    <div class="camera-access-guide">
+                        <div class="camera-icon">
+                            <i class="fas fa-video"></i>
+                        </div>
+                        <p>Attempting to access camera...</p>
+                        <p class="small">Click "Allow" when prompted</p>
+                    </div>
+                `;
+            }
+        }
+    }
+    
+    clearCameraGuidance() {
+        const overlay = document.getElementById('cameraOverlay');
+        if (overlay) {
+            overlay.innerHTML = '';
+        }
+    }
+    
+    showCameraTroubleshooting() {
+        this.clearCameraGuidance();
+        
+        // Add warning icon to video overlay
+        const overlay = document.getElementById('cameraOverlay');
+        if (overlay) {
+            overlay.innerHTML = `
+                <div class="camera-error-overlay">
+                    <div class="camera-error-icon">
+                        <i class="fas fa-video-slash"></i>
+                    </div>
+                    <p>Camera not found</p>
+                    <p class="small">Check troubleshooting guide below</p>
+                </div>
+            `;
+        }
+        
+        const resultsPanel = document.getElementById('realTimeResults');
+        if (resultsPanel) {
+            resultsPanel.innerHTML = `
+                <div class="troubleshooting-guide">
+                    <h4>Camera Troubleshooting Guide</h4>
+                    <ul>
+                        <li><strong>Check camera connection:</strong> Make sure your webcam is properly connected to your computer</li>
+                        <li><strong>Close other applications:</strong> Programs like Zoom, Teams, or Skype may be using your camera</li>
+                        <li><strong>Restart your browser:</strong> Close and reopen your browser completely</li>
+                        <li><strong>Try incognito/private mode:</strong> This bypasses extensions that might block camera access</li>
+                        <li><strong>Check Windows settings:</strong> Go to Windows Settings > Privacy > Camera and ensure access is on</li>
+                        <li><strong>Check Device Manager:</strong> Ensure your camera is working properly in Device Manager</li>
+                        <li><strong>Try another browser:</strong> Chrome and Firefox have the best webcam support</li>
+                        <li><strong>Test your camera:</strong> Try <a href="https://webcamtests.com/" target="_blank">webcamtests.com</a> to verify your camera works</li>
+                    </ul>
+                    <div class="action-buttons">
+                        <button class="glass-button primary" onclick="window.location.reload()">
+                            <i class="fas fa-sync"></i> Refresh Page
+                        </button>
+                        <button class="glass-button" id="retryCamera">
+                            <i class="fas fa-redo"></i> Try Again
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            // Add event listener to retry button
+            setTimeout(() => {
+                const retryButton = document.getElementById('retryCamera');
+                if (retryButton) {
+                    retryButton.addEventListener('click', () => {
+                        this.startCamera();
+                    });
+                }
+            }, 100);
+        }
+    }
+    
+    showPermissionTroubleshooting() {
+        this.clearCameraGuidance();
+        
+        // Add permission icon to video overlay
+        const overlay = document.getElementById('cameraOverlay');
+        if (overlay) {
+            overlay.innerHTML = `
+                <div class="camera-error-overlay">
+                    <div class="camera-error-icon">
+                        <i class="fas fa-user-slash"></i>
+                    </div>
+                    <p>Permission Denied</p>
+                    <p class="small">Camera access blocked</p>
+                </div>
+            `;
+        }
+        
+        const resultsPanel = document.getElementById('realTimeResults');
+        if (resultsPanel) {
+            resultsPanel.innerHTML = `
+                <div class="troubleshooting-guide">
+                    <h4>Camera Permission Guide</h4>
+                    <p>Your browser is blocking camera access. Follow these steps:</p>
+                    <ul>
+                        <li><strong>Check address bar:</strong> Look for a camera icon <i class="fas fa-video"></i> or blocked icon <i class="fas fa-times-circle"></i></li>
+                        <li><strong>Allow camera access:</strong> Click the icon and select "Allow" for camera access</li>
+                        <li><strong>Chrome settings:</strong> Click the lock/info icon in address bar → Site settings → Allow camera</li>
+                        <li><strong>Reset permissions:</strong> Chrome: Settings → Privacy and security → Site Settings → Camera</li>
+                        <li><strong>Firefox:</strong> Click the shield icon → Permissions → Camera → Allow</li>
+                        <li><strong>Edge:</strong> Settings → Cookies and site permissions → Camera</li>
+                    </ul>
+                    <div class="permission-icons">
+                        <div class="permission-icon">
+                            <img src="https://www.gstatic.com/images/icons/material/system/2x/camera_alt_grey600_24dp.png" alt="Chrome permission">
+                            <span>Chrome</span>
+                        </div>
+                        <div class="permission-icon">
+                            <img src="https://support.mozilla.org/media/uploads/gallery/images/2019-02-20-13-26-11-97329a.png" alt="Firefox permission" width="40">
+                            <span>Firefox</span>
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="glass-button primary" onclick="window.location.reload()">
+                            <i class="fas fa-sync"></i> Refresh Page
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+    }
+    
+    showSystemTroubleshooting() {
+        this.clearCameraGuidance();
+        
+        // Add warning icon to video overlay
+        const overlay = document.getElementById('cameraOverlay');
+        if (overlay) {
+            overlay.innerHTML = `
+                <div class="camera-error-overlay">
+                    <div class="camera-error-icon">
+                        <i class="fas fa-laptop-medical"></i>
+                    </div>
+                    <p>Laptop Camera Issue</p>
+                    <p class="small">System access problem</p>
+                </div>
+            `;
+        }
+        
+        const resultsPanel = document.getElementById('realTimeResults');
+        if (resultsPanel) {
+            resultsPanel.innerHTML = `
+                <div class="troubleshooting-guide">
+                    <h4>Laptop Camera Troubleshooting</h4>
+                    <p>Your built-in laptop camera could not be accessed. Please try these steps:</p>
+                    <ul>
+                        <li><strong>Check camera privacy settings:</strong>
+                            <ul>
+                                <li>Windows: Start > Settings > Privacy > Camera > Make sure "Allow apps to access your camera" is ON</li>
+                                <li>Mac: System Preferences > Security & Privacy > Camera > Allow browser access</li>
+                            </ul>
+                        </li>
+                        <li><strong>Check device manager:</strong> Make sure your camera is not disabled in Device Manager</li>
+                        <li><strong>Check physical camera:</strong> Some laptops have a physical switch or Fn key to enable/disable the camera</li>
+                        <li><strong>Restart your computer:</strong> Sometimes a full restart can fix camera detection issues</li>
+                        <li><strong>Update drivers:</strong> Make sure your camera drivers are up-to-date</li>
+                        <li><strong>Try another browser:</strong> Sometimes camera access works better in different browsers</li>
+                    </ul>
+                    <div class="action-buttons">
+                        <button class="glass-button primary" onclick="window.location.reload()">
+                            <i class="fas fa-sync"></i> Refresh Page
+                        </button>
+                        <button class="glass-button" id="retryForceCamera">
+                            <i class="fas fa-redo"></i> Try Again
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            // Add event listener to retry button
+            setTimeout(() => {
+                const retryButton = document.getElementById('retryForceCamera');
+                if (retryButton) {
+                    retryButton.addEventListener('click', () => {
+                        this.forceLaptopCamera();
+                    });
+                }
+            }, 100);
         }
     }
 
     stopCamera() {
-        if (this.stream) {
-            this.stream.getTracks().forEach(track => track.stop());
-            this.stream = null;
-        }
-        
-        if (this.video) {
-            this.video.srcObject = null;
-        }
+        try {
+            if (this.stream) {
+                console.log('Stopping camera tracks');
+                this.stream.getTracks().forEach(track => {
+                    try {
+                        track.stop();
+                        console.log(`Track ${track.id} stopped`);
+                    } catch (e) {
+                        console.warn(`Error stopping track ${track.id}:`, e);
+                    }
+                });
+                this.stream = null;
+            }
+            
+            if (this.video) {
+                console.log('Clearing video source');
+                this.video.pause();
+                this.video.srcObject = null;
+            }
 
-        this.stopRecognition();
-        this.updateCameraControls(false);
-        this.showAlert('Camera stopped', 'info');
+            // Stop face detection and recognition
+            this.stopFaceDetection();
+            this.stopRecognition();
+            this.updateCameraControls(false);
+            this.autoDetectionEnabled = false;
+            this.showAlert('Camera stopped', 'info');
+            
+            // Clear any troubleshooting guides
+            const resultsPanel = document.getElementById('realTimeResults');
+            if (resultsPanel) {
+                resultsPanel.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 20px;">Start recognition to see results</p>';
+            }
+        } catch (error) {
+            console.error('Error stopping camera:', error);
+        }
     }
 
     capturePhoto() {
@@ -390,12 +867,78 @@ class FaceRecognitionApp {
         const container = document.getElementById('realTimeResults');
         if (!container) return;
 
+        // If no results, show appropriate message
+        if (!results || results.length === 0) {
+            container.innerHTML = `
+                <div class="no-results">
+                    <p class="text-center text-muted">
+                        <i class="fas fa-search"></i> Scanning for faces...
+                    </p>
+                </div>
+            `;
+            return;
+        }
+
+        // Sort results by confidence (highest first) to show best match
+        results.sort((a, b) => b.confidence - a.confidence);
+
         container.innerHTML = '';
         
-        results.forEach(result => {
-            const resultItem = this.createResultItem(result, true);
+        // Add header showing scan status
+        const header = document.createElement('div');
+        header.className = 'realtime-header';
+        header.innerHTML = `
+            <h5><i class="fas fa-eye"></i> Live Recognition</h5>
+            <small class="text-muted">${results.length} face(s) detected</small>
+        `;
+        container.appendChild(header);
+        
+        // Display each result, with best match highlighted
+        results.forEach((result, index) => {
+            const resultItem = this.createRealTimeResultItem(result, index === 0);
             container.appendChild(resultItem);
         });
+    }
+
+    createRealTimeResultItem(result, isBestMatch = false) {
+        const item = document.createElement('div');
+        item.className = `realtime-result-item ${isBestMatch ? 'best-match' : ''} fade-in`;
+        
+        const confidence = Math.round(result.confidence * 100);
+        const confidenceClass = confidence > 80 ? 'success' : confidence > 60 ? 'warning' : 'danger';
+        
+        item.innerHTML = `
+            <div class="result-card ${isBestMatch ? 'border-success' : ''}">
+                ${isBestMatch ? '<div class="best-match-indicator"><i class="fas fa-crown"></i> Best Match</div>' : ''}
+                <div class="result-content">
+                    <div class="student-info">
+                        <h6 class="student-name ${isBestMatch ? 'text-success font-weight-bold' : ''}">
+                            ${result.name}
+                        </h6>
+                        <div class="student-details">
+                            <small><i class="fas fa-id-card"></i> ${result.student_id}</small><br>
+                            <small><i class="fas fa-graduation-cap"></i> ${result.department}</small><br>
+                            <small><i class="fas fa-calendar"></i> Year ${result.year}</small>
+                        </div>
+                    </div>
+                    <div class="confidence-display">
+                        <div class="confidence-bar">
+                            <div class="confidence-fill bg-${confidenceClass}" 
+                                 style="width: ${confidence}%"></div>
+                        </div>
+                        <span class="badge badge-${confidenceClass}">${confidence}%</span>
+                    </div>
+                    <div class="action-section">
+                        <button class="btn btn-${isBestMatch ? 'success' : 'outline-success'} btn-sm w-100" 
+                                onclick="markAttendance('${result.student_id}', '${result.name}')">
+                            <i class="fas fa-check"></i> Mark Attendance
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        return item;
     }
 
     createResultItem(result, isRealTime = false) {
@@ -571,7 +1114,17 @@ class FaceRecognitionApp {
         containers.forEach(id => {
             const container = document.getElementById(id);
             if (container) {
-                container.innerHTML = '';
+                if (id === 'realTimeResults') {
+                    container.innerHTML = `
+                        <div class="no-results">
+                            <p class="text-center text-muted">
+                                <i class="fas fa-info-circle"></i> Real-time recognition stopped
+                            </p>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = '';
+                }
             }
         });
     }
@@ -580,10 +1133,302 @@ class FaceRecognitionApp {
         const startBtn = document.getElementById('startCamera');
         const stopBtn = document.getElementById('stopCamera');
         const captureBtn = document.getElementById('capturePhoto');
+        const toggleRecognitionBtn = document.getElementById('toggleRecognition');
+        const forceBtn = document.getElementById('forceCamera');
         
-        if (startBtn) startBtn.style.display = isActive ? 'none' : 'inline-flex';
-        if (stopBtn) stopBtn.style.display = isActive ? 'inline-flex' : 'none';
-        if (captureBtn) captureBtn.disabled = !isActive;
+        // Update button visibility
+        if (startBtn) {
+            startBtn.style.display = isActive ? 'none' : 'inline-flex';
+            startBtn.classList.toggle('disabled', isActive);
+        }
+        
+        // If camera is active and auto detection is enabled, start face detection
+        if (isActive && this.autoDetectionEnabled) {
+            // Start face detection after a short delay to let camera stabilize
+            setTimeout(() => {
+                this.startFaceDetection();
+            }, 1000);
+        }
+        
+        // Show force camera button only when regular camera fails
+        if (forceBtn) {
+            if (this.cameraFailed && !isActive) {
+                forceBtn.style.display = 'inline-flex';
+            } else {
+                forceBtn.style.display = 'none';
+            }
+        }
+        
+        if (stopBtn) {
+            stopBtn.style.display = isActive ? 'inline-flex' : 'none';
+            stopBtn.classList.toggle('disabled', !isActive);
+        }
+        
+        if (captureBtn) {
+            captureBtn.disabled = !isActive;
+            captureBtn.classList.toggle('disabled', !isActive);
+        }
+        
+        if (toggleRecognitionBtn) {
+            toggleRecognitionBtn.disabled = !isActive;
+            toggleRecognitionBtn.classList.toggle('disabled', !isActive);
+        }
+        
+        // Update video element status
+        if (this.video) {
+            if (isActive) {
+                this.video.classList.add('active');
+                this.video.classList.remove('inactive');
+            } else {
+                this.video.classList.add('inactive');
+                this.video.classList.remove('active');
+            }
+        }
+        
+        // Log current state for debugging
+        console.log(`Camera controls updated: isActive=${isActive}`);
+    }
+    
+    startFaceDetection() {
+        // Don't start if already running or camera is not active
+        if (this.faceDetectionInterval || !this.video || !this.stream) {
+            return;
+        }
+        
+        console.log('Starting automatic face detection...');
+        
+        // Create face detection status element if it doesn't exist
+        const container = document.getElementById('realTimeResults');
+        if (container) {
+            // Add auto-detection class to parent for styling
+            container.parentElement.classList.add('auto-detection-active');
+            
+            container.innerHTML = `
+                <div class="detection-status">
+                    <div class="detection-icon">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <p>Scanning for faces...</p>
+                    <div class="detection-indicator"></div>
+                </div>
+            `;
+            
+            // Show streaming status
+            const streamingStatus = document.getElementById('streamingStatus');
+            if (streamingStatus) {
+                streamingStatus.style.display = 'flex';
+            }
+        }
+        
+        // Start the face detection loop
+        this.faceDetectionInterval = setInterval(() => {
+            this.detectFace();
+        }, 500); // Check for faces every 500ms
+    }
+    
+    stopFaceDetection() {
+        if (this.faceDetectionInterval) {
+            clearInterval(this.faceDetectionInterval);
+            this.faceDetectionInterval = null;
+            console.log('Face detection stopped');
+        }
+        
+        // Also stop recognition if it was started automatically
+        if (this.isRecognitionActive && this.autoStartedRecognition) {
+            this.stopRecognition();
+            this.autoStartedRecognition = false;
+        }
+        
+        // Hide streaming status
+        const streamingStatus = document.getElementById('streamingStatus');
+        if (streamingStatus) {
+            streamingStatus.style.display = 'none';
+        }
+        
+        // Remove auto-detection class
+        const resultsContainer = document.getElementById('realTimeResults');
+        if (resultsContainer && resultsContainer.parentElement) {
+            resultsContainer.parentElement.classList.remove('auto-detection-active');
+        }
+    }
+    
+    async detectFace() {
+        if (!this.video || !this.stream || !this.autoDetectionEnabled) return;
+        
+        try {
+            this.canvas.width = this.video.videoWidth;
+            this.canvas.height = this.video.videoHeight;
+            this.context.drawImage(this.video, 0, 0);
+            
+            // Send minimal data for face detection only (not full recognition)
+            const imageData = this.canvas.toDataURL('image/jpeg', 0.3);
+            
+            const response = await fetch('/detect_faces', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ image: imageData })
+            });
+            
+            const result = await response.json();
+            
+            // Update detection status
+            const indicator = document.querySelector('.detection-indicator');
+            const statusText = document.querySelector('.detection-status p');
+            
+            if (result.success && result.faces_detected > 0) {
+                // Face detected - update UI and start recognition if not already running
+                if (indicator) {
+                    indicator.classList.add('active');
+                }
+                if (statusText) {
+                    statusText.textContent = `${result.faces_detected} face(s) detected - Starting recognition...`;
+                }
+                
+                // Automatically start recognition if not already running
+                if (!this.isRecognitionActive) {
+                    console.log('Face detected, starting recognition automatically');
+                    
+                    // Add visual feedback
+                    const overlay = document.getElementById('cameraOverlay');
+                    if (overlay) {
+                        overlay.innerHTML = `
+                            <div class="face-detected-flash"></div>
+                        `;
+                        setTimeout(() => {
+                            if (overlay) overlay.innerHTML = '';
+                        }, 800);
+                    }
+                    
+                    this.startRecognition();
+                    this.autoStartedRecognition = true;
+                    
+                    // Update streaming status text
+                    const streamingStatus = document.getElementById('streamingStatus');
+                    if (streamingStatus) {
+                        streamingStatus.innerHTML = `<i class="fas fa-circle"></i> Face Detected - Recognition Active`;
+                    }
+                }
+            } else {
+                // No face detected
+                if (indicator) {
+                    indicator.classList.remove('active');
+                }
+                if (statusText) {
+                    statusText.textContent = 'Scanning for faces...';
+                }
+                
+                // If recognition was auto-started but now no faces are visible, stop it after a delay
+                if (this.autoStartedRecognition && this.isRecognitionActive && this.noFaceCounter === undefined) {
+                    this.noFaceCounter = 0;
+                } else if (this.autoStartedRecognition && this.isRecognitionActive) {
+                    this.noFaceCounter++;
+                    
+                    // Stop recognition after 5 seconds (10 checks × 500ms) of no faces
+                    if (this.noFaceCounter > 10) {
+                        this.stopRecognition();
+                        this.autoStartedRecognition = false;
+                        this.noFaceCounter = undefined;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error in face detection:', error);
+        }
+    }
+    
+    // Method to force access to laptop camera with simplified constraints
+    async forceLaptopCamera() {
+        try {
+            this.showLoading('forceCamera');
+            console.log('Forcing laptop camera access with simplified constraints...');
+            
+            // Reset any previous stream
+            if (this.stream) {
+                this.stopCamera();
+            }
+            
+            this.showAlert('Attempting to access built-in laptop camera...', 'info');
+            
+            // Add special visual indicator
+            const overlay = document.getElementById('cameraOverlay');
+            if (overlay) {
+                overlay.innerHTML = `
+                    <div class="camera-access-guide">
+                        <div class="camera-icon">
+                            <i class="fas fa-laptop"></i>
+                        </div>
+                        <p>Accessing built-in camera...</p>
+                        <p class="small">This might take a few moments</p>
+                    </div>
+                `;
+            }
+            
+            // Use extremely basic constraints optimized for laptop cameras
+            const laptopConstraints = {
+                audio: false,
+                video: {
+                    width: { ideal: 320 },
+                    height: { ideal: 240 },
+                    frameRate: { max: 15 }
+                }
+            };
+            
+            console.log('Using basic laptop camera constraints:', laptopConstraints);
+            this.stream = await navigator.mediaDevices.getUserMedia(laptopConstraints);
+            
+            if (this.video) {
+                console.log('Connecting stream to video element');
+                this.video.srcObject = this.stream;
+                
+                // Create a promise for video loaded with extended timeout
+                const playPromise = new Promise((resolve, reject) => {
+                    this.video.onloadedmetadata = () => {
+                        console.log('Video metadata loaded, attempting to play');
+                        this.video.play()
+                            .then(() => resolve())
+                            .catch(err => {
+                                console.error('Error playing video:', err);
+                                reject(err);
+                            });
+                    };
+                    
+                    this.video.onerror = (err) => {
+                        console.error('Video element error:', err);
+                        reject(err);
+                    };
+                    
+                    // Extended timeout for laptop cameras
+                    setTimeout(() => {
+                        reject(new Error('Video loading timeout'));
+                    }, 15000);
+                });
+                
+                await playPromise;
+                
+                console.log('Laptop camera video playback started');
+                this.updateCameraControls(true);
+                this.hideLoading('forceCamera');
+                this.clearCameraGuidance();
+                this.showAlert('Laptop camera started successfully', 'success');
+                
+                // Reset camera failed flag
+                this.cameraFailed = false;
+                
+                // Log camera details for debugging
+                const tracks = this.stream.getVideoTracks();
+                if (tracks.length > 0) {
+                    const settings = tracks[0].getSettings();
+                    console.log('Active laptop camera settings:', settings);
+                }
+            }
+        } catch (error) {
+            console.error('Error forcing laptop camera:', error);
+            this.hideLoading('forceCamera');
+            this.showAlert('Could not access laptop camera. Please check your system settings.', 'error', 10000);
+            this.showSystemTroubleshooting();
+        }
     }
 
     updateRecognitionButton() {
@@ -591,11 +1436,13 @@ class FaceRecognitionApp {
         if (!btn) return;
 
         if (this.isRecognitionActive) {
-            btn.textContent = 'Stop Recognition';
+            btn.innerHTML = '<i class="fas fa-stop recognition-active"></i> Stop Recognition';
             btn.className = 'btn btn-danger';
+            btn.classList.add('recognition-active');
         } else {
-            btn.textContent = 'Start Recognition';
+            btn.innerHTML = '<i class="fas fa-eye"></i> Start Recognition';
             btn.className = 'btn btn-success';
+            btn.classList.remove('recognition-active');
         }
     }
 
@@ -872,7 +1719,7 @@ class FaceRecognitionApp {
 }
 
 // Global functions for inline event handlers
-async function markAttendance(studentId) {
+async function markAttendance(studentId, studentName = null) {
     try {
         const response = await fetch('/mark_attendance', {
             method: 'POST',
@@ -885,7 +1732,11 @@ async function markAttendance(studentId) {
         const result = await response.json();
         
         if (result.success) {
-            app.showAlert(`Attendance marked for ${studentId}`, 'success');
+            const displayName = studentName || studentId;
+            app.showAlert(`✅ Attendance marked for ${displayName}`, 'success');
+            
+            // Update UI to show attendance marked
+            updateAttendanceButton(studentId, true);
         } else {
             app.showAlert(result.message || 'Failed to mark attendance', 'error');
         }
@@ -893,6 +1744,20 @@ async function markAttendance(studentId) {
         console.error('Error marking attendance:', error);
         app.showAlert('Failed to mark attendance', 'error');
     }
+}
+
+function updateAttendanceButton(studentId, isMarked) {
+    // Find and update the attendance button for this student
+    const buttons = document.querySelectorAll(`button[onclick*="${studentId}"]`);
+    buttons.forEach(button => {
+        if (button.textContent.includes('Mark Attendance')) {
+            if (isMarked) {
+                button.innerHTML = '<i class="fas fa-check-circle"></i> Marked';
+                button.className = button.className.replace('btn-success', 'btn-secondary');
+                button.disabled = true;
+            }
+        }
+    });
 }
 
 async function bulkMarkAttendance() {
@@ -1045,7 +1910,971 @@ document.addEventListener('DOMContentLoaded', () => {
     app = new FaceRecognitionApp();
 });
 
+// Face Comparison and Verification Functions
+let selectedMatch = null;
+
+async function confirmMatch() {
+    if (!selectedMatch) {
+        app.showAlert('Please select a match first', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/mark_attendance', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+                student_id: selectedMatch.student_id,
+                verified: true,
+                similarity_score: selectedMatch.similarity_score 
+            })
+        });
+
+        const result = await response.json();
+        
+        if (result.success) {
+            showVerificationFeedback(`✅ Attendance marked for ${selectedMatch.student_name}`, 'success');
+            
+            // Clear current selection and continue scanning
+            clearVerificationState();
+        } else {
+            showVerificationFeedback(result.message || 'Failed to mark attendance', 'error');
+        }
+    } catch (error) {
+        console.error('Error confirming match:', error);
+        showVerificationFeedback('Failed to mark attendance', 'error');
+    }
+}
+
+function skipMatch() {
+    showVerificationFeedback('Face skipped. Continuing scan...', 'warning');
+    clearVerificationState();
+}
+
+function rejectAllMatches() {
+    showVerificationFeedback('No match confirmed. Face not recognized.', 'warning');
+    clearVerificationState();
+}
+
+function clearVerificationState() {
+    selectedMatch = null;
+    
+    // Clear selection
+    document.querySelectorAll('.match-item').forEach(item => {
+        item.classList.remove('selected');
+    });
+    
+    // Hide verification controls temporarily
+    const controls = document.getElementById('verificationControls');
+    setTimeout(() => {
+        if (controls) controls.style.display = 'none';
+    }, 2000);
+    
+    // Clear face display
+    setTimeout(() => {
+        clearFaceDisplay();
+    }, 3000);
+}
+
+function showVerificationFeedback(message, type) {
+    const feedback = document.getElementById('verificationFeedback');
+    if (feedback) {
+        feedback.textContent = message;
+        feedback.className = `verification-feedback ${type}`;
+        feedback.style.display = 'block';
+        
+        // Auto-hide after 3 seconds
+        setTimeout(() => {
+            feedback.style.display = 'none';
+        }, 3000);
+    }
+}
+
+function clearFaceDisplay() {
+    const image = document.getElementById('realtimeFaceImage');
+    const container = document.getElementById('realtimeFaceContainer');
+    
+    if (image && container) {
+        image.style.display = 'none';
+        const placeholder = container.querySelector('.no-face-placeholder');
+        if (placeholder) {
+            placeholder.style.display = 'block';
+        }
+        
+        // Clear matches
+        const matchesContainer = document.getElementById('suggestedMatches');
+        if (matchesContainer) {
+            matchesContainer.innerHTML = `
+                <div class="no-matches-placeholder">
+                    <i class="fas fa-search"></i>
+                    <p>Scanning for faces...</p>
+                </div>
+            `;
+        }
+        
+        // Hide verification controls
+        const controls = document.getElementById('verificationControls');
+        if (controls) {
+            controls.style.display = 'none';
+        }
+    }
+}
+
+function selectMatch(match, element) {
+    // Remove previous selections
+    document.querySelectorAll('.match-item').forEach(item => {
+        item.classList.remove('selected');
+    });
+    
+    // Select current match
+    element.classList.add('selected');
+    selectedMatch = match;
+    
+    // Update verification controls
+    const confirmBtn = document.getElementById('confirmMatchBtn');
+    if (confirmBtn) {
+        confirmBtn.disabled = false;
+    }
+}
+
 // Export for module usage if needed
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = FaceRecognitionApp;
+}
+// ========================================
+// FUTURISTIC LOGIN PAGE - INTERACTIVE ANIMATIONS
+// Next-Gen Face Recognition Attendance System
+// ========================================
+
+class FuturisticLogin {
+    constructor() {
+        this.particles = [];
+        this.mouse = { x: 0, y: 0 };
+        this.isPasswordVisible = false;
+        this.isLoading = false;
+        
+        this.init();
+    }
+
+    init() {
+        this.setupEventListeners();
+        this.initParticleSystem();
+        this.initMouseTracking();
+        this.initFormInteractions();
+        this.initPasswordToggle();
+        this.initLoginButton();
+        this.setupFormValidation();
+        
+        // Initialize 3D effects
+        this.init3DEffects();
+        
+        console.log('🚀 FuturisticLogin System Initialized');
+    }
+
+    // ========================================
+    // PARTICLE SYSTEM
+    // ========================================
+    
+    initParticleSystem() {
+        this.particleField = document.getElementById('particleField');
+        this.createParticles();
+        this.animateParticles();
+    }
+
+    createParticles() {
+        const particleCount = window.innerWidth < 768 ? 30 : 50;
+        
+        for (let i = 0; i < particleCount; i++) {
+            const particle = this.createParticle();
+            this.particles.push(particle);
+            this.particleField.appendChild(particle.element);
+        }
+    }
+
+    createParticle() {
+        const element = document.createElement('div');
+        element.className = 'particle';
+        
+        const size = Math.random() * 4 + 1;
+        const x = Math.random() * window.innerWidth;
+        const y = Math.random() * window.innerHeight;
+        const speedX = (Math.random() - 0.5) * 0.5;
+        const speedY = (Math.random() - 0.5) * 0.5;
+        const opacity = Math.random() * 0.5 + 0.2;
+        
+        // Random neon colors
+        const colors = ['#2575fc', '#00c9ff', '#ff0080', '#00ff88', '#ffff00'];
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        
+        element.style.cssText = `
+            position: absolute;
+            width: ${size}px;
+            height: ${size}px;
+            background: ${color};
+            border-radius: 50%;
+            opacity: ${opacity};
+            box-shadow: 0 0 ${size * 3}px ${color};
+            pointer-events: none;
+            transform: translate(${x}px, ${y}px);
+            transition: all 0.3s ease;
+        `;
+
+        return {
+            element,
+            x,
+            y,
+            speedX,
+            speedY,
+            size,
+            color,
+            originalOpacity: opacity
+        };
+    }
+
+    animateParticles() {
+        this.particles.forEach(particle => {
+            // Move particles
+            particle.x += particle.speedX;
+            particle.y += particle.speedY;
+
+            // Wrap around screen
+            if (particle.x > window.innerWidth) particle.x = 0;
+            if (particle.x < 0) particle.x = window.innerWidth;
+            if (particle.y > window.innerHeight) particle.y = 0;
+            if (particle.y < 0) particle.y = window.innerHeight;
+
+            // Mouse interaction
+            const dx = this.mouse.x - particle.x;
+            const dy = this.mouse.y - particle.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const maxDistance = 150;
+
+            if (distance < maxDistance) {
+                const force = (maxDistance - distance) / maxDistance;
+                const opacity = particle.originalOpacity + force * 0.5;
+                const scale = 1 + force * 2;
+                
+                particle.element.style.opacity = Math.min(opacity, 1);
+                particle.element.style.transform = `translate(${particle.x}px, ${particle.y}px) scale(${scale})`;
+            } else {
+                particle.element.style.opacity = particle.originalOpacity;
+                particle.element.style.transform = `translate(${particle.x}px, ${particle.y}px) scale(1)`;
+            }
+        });
+
+        requestAnimationFrame(() => this.animateParticles());
+    }
+
+    // ========================================
+    // MOUSE TRACKING & 3D EFFECTS
+    // ========================================
+    
+    initMouseTracking() {
+        document.addEventListener('mousemove', (e) => {
+            this.mouse.x = e.clientX;
+            this.mouse.y = e.clientY;
+            
+            this.updateMouseEffects(e);
+        });
+    }
+
+    updateMouseEffects(e) {
+        const card = document.getElementById('loginCard');
+        const rect = card.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        
+        const deltaX = (e.clientX - centerX) / rect.width;
+        const deltaY = (e.clientY - centerY) / rect.height;
+        
+        // 3D tilt effect
+        const tiltX = deltaY * 10;
+        const tiltY = deltaX * -10;
+        
+        card.style.transform = `
+            translateY(-10px) 
+            rotateX(${tiltX}deg) 
+            rotateY(${tiltY}deg)
+            perspective(1000px)
+        `;
+
+        // Update gradient overlay based on mouse position
+        const gradientOverlay = document.querySelector('.gradient-overlay');
+        if (gradientOverlay) {
+            const x = (e.clientX / window.innerWidth) * 100;
+            const y = (e.clientY / window.innerHeight) * 100;
+            
+            gradientOverlay.style.background = `
+                radial-gradient(circle at ${x}% ${y}%, #6a11cb 0%, transparent 50%),
+                radial-gradient(circle at ${100-x}% ${100-y}%, #2575fc 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, #00c9ff 0%, transparent 50%),
+                linear-gradient(135deg, #050505 0%, #0a0a0a 100%)
+            `;
+        }
+    }
+
+    init3DEffects() {
+        // Reset card transform when mouse leaves
+        document.addEventListener('mouseleave', () => {
+            const card = document.getElementById('loginCard');
+            card.style.transform = 'translateY(-10px) rotateX(0deg) rotateY(0deg)';
+        });
+
+        // Floating spheres interaction
+        this.initSphereInteraction();
+    }
+
+    initSphereInteraction() {
+        const spheres = document.querySelectorAll('.sphere');
+        
+        document.addEventListener('mousemove', (e) => {
+            spheres.forEach((sphere, index) => {
+                const speed = 0.5 + index * 0.1;
+                const x = (e.clientX * speed) / 100;
+                const y = (e.clientY * speed) / 100;
+                
+                sphere.style.transform = `
+                    translate(${x}px, ${y}px) 
+                    rotateZ(${x * 0.1}deg) 
+                    scale(${1 + Math.sin(Date.now() * 0.001 + index) * 0.1})
+                `;
+            });
+        });
+    }
+
+    // ========================================
+    // PASSWORD TOGGLE WITH EYE ANIMATION
+    // ========================================
+    
+    initPasswordToggle() {
+        const passwordToggle = document.getElementById('passwordToggle');
+        const passwordInput = document.getElementById('password');
+        const eyeIcon = document.getElementById('eyeIcon');
+        
+        passwordToggle.addEventListener('click', () => {
+            this.togglePasswordVisibility(passwordInput, eyeIcon);
+        });
+
+        // Eye blink animation on hover
+        passwordToggle.addEventListener('mouseenter', () => {
+            this.triggerEyeBlink(eyeIcon);
+        });
+    }
+
+    togglePasswordVisibility(passwordInput, eyeIcon) {
+        this.isPasswordVisible = !this.isPasswordVisible;
+        
+        // Animate the eye
+        this.animateEyeToggle(eyeIcon);
+        
+        // Toggle password visibility
+        passwordInput.type = this.isPasswordVisible ? 'text' : 'password';
+        eyeIcon.className = this.isPasswordVisible ? 'fas fa-eye-slash eye-icon' : 'fas fa-eye eye-icon';
+        
+        // Create ripple effect
+        this.createRippleEffect(document.querySelector('.password-toggle'));
+    }
+
+    animateEyeToggle(eyeIcon) {
+        // Blink animation
+        eyeIcon.style.transform = 'scaleY(0.1)';
+        eyeIcon.style.filter = 'brightness(2)';
+        
+        setTimeout(() => {
+            eyeIcon.style.transform = 'scaleY(1)';
+            eyeIcon.style.filter = 'brightness(1)';
+        }, 150);
+
+        // Color pulse
+        this.pulseEyeColor(eyeIcon);
+    }
+
+    triggerEyeBlink(eyeIcon) {
+        eyeIcon.style.animation = 'none';
+        setTimeout(() => {
+            eyeIcon.style.animation = 'eyeBlink 0.3s ease-in-out';
+        }, 10);
+    }
+
+    pulseEyeColor(eyeIcon) {
+        const colors = ['#2575fc', '#00c9ff', '#ff0080', '#00ff88'];
+        let colorIndex = 0;
+        
+        const colorInterval = setInterval(() => {
+            eyeIcon.style.color = colors[colorIndex];
+            colorIndex = (colorIndex + 1) % colors.length;
+        }, 100);
+        
+        setTimeout(() => {
+            clearInterval(colorInterval);
+            eyeIcon.style.color = '#2575fc';
+        }, 500);
+    }
+
+    // ========================================
+    // FORM INTERACTIONS
+    // ========================================
+    
+    initFormInteractions() {
+        const inputs = document.querySelectorAll('.futuristic-input');
+        
+        inputs.forEach(input => {
+            this.setupInputEffects(input);
+        });
+    }
+
+    setupInputEffects(input) {
+        // Focus effects
+        input.addEventListener('focus', () => {
+            this.activateInputGlow(input);
+            this.createInputParticles(input);
+        });
+
+        // Blur effects
+        input.addEventListener('blur', () => {
+            this.deactivateInputGlow(input);
+        });
+
+        // Typing effects
+        input.addEventListener('input', () => {
+            this.createTypingEffect(input);
+        });
+    }
+
+    activateInputGlow(input) {
+        const container = input.closest('.input-container');
+        const glow = container.querySelector('.input-glow');
+        
+        glow.style.opacity = '0.4';
+        glow.style.transform = 'scale(1.02)';
+        
+        // Sound effect simulation (visual pulse)
+        this.createSoundVisualization(container);
+    }
+
+    deactivateInputGlow(input) {
+        const container = input.closest('.input-container');
+        const glow = container.querySelector('.input-glow');
+        
+        glow.style.opacity = '0';
+        glow.style.transform = 'scale(1)';
+    }
+
+    createInputParticles(input) {
+        const container = input.closest('.input-container');
+        const rect = container.getBoundingClientRect();
+        
+        for (let i = 0; i < 5; i++) {
+            this.createTempParticle(rect.left + rect.width * Math.random(), rect.top);
+        }
+    }
+
+    createTempParticle(x, y) {
+        const particle = document.createElement('div');
+        particle.style.cssText = `
+            position: fixed;
+            width: 3px;
+            height: 3px;
+            background: #00c9ff;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #00c9ff;
+            pointer-events: none;
+            z-index: 1000;
+            left: ${x}px;
+            top: ${y}px;
+            animation: particleFloat 1s ease-out forwards;
+        `;
+        
+        document.body.appendChild(particle);
+        
+        setTimeout(() => {
+            particle.remove();
+        }, 1000);
+    }
+
+    createTypingEffect(input) {
+        const container = input.closest('.input-container');
+        container.style.transform = 'scale(1.01)';
+        
+        setTimeout(() => {
+            container.style.transform = 'scale(1)';
+        }, 100);
+    }
+
+    createSoundVisualization(container) {
+        const visualizer = document.createElement('div');
+        visualizer.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #00c9ff, transparent);
+            animation: soundWave 0.5s ease-out;
+            pointer-events: none;
+        `;
+        
+        container.appendChild(visualizer);
+        
+        setTimeout(() => {
+            visualizer.remove();
+        }, 500);
+    }
+
+    // ========================================
+    // LOGIN BUTTON INTERACTIONS
+    // ========================================
+    
+    initLoginButton() {
+        const loginButton = document.getElementById('loginButton');
+        
+        if (!loginButton) return; // Exit if login button doesn't exist
+        
+        loginButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.handleLogin();
+        });
+
+        // Hover effects
+        loginButton.addEventListener('mouseenter', () => {
+            this.activateButtonEffects(loginButton);
+        });
+
+        loginButton.addEventListener('mouseleave', () => {
+            this.deactivateButtonEffects(loginButton);
+        });
+        
+        // Fallback: Allow form submission if JavaScript fails
+        const form = document.getElementById('loginForm');
+        if (form) {
+            form.addEventListener('submit', (e) => {
+                // If AJAX is working, prevent default submission
+                if (this.isLoading) {
+                    e.preventDefault();
+                }
+            });
+        }
+    }
+
+    activateButtonEffects(button) {
+        // Create orbital particles around button
+        this.createOrbitalParticles(button);
+        
+        // Energy pulse effect
+        this.createEnergyPulse(button);
+    }
+
+    deactivateButtonEffects(button) {
+        // Remove orbital particles
+        const orbitals = button.querySelectorAll('.orbital-particle');
+        orbitals.forEach(orbital => orbital.remove());
+    }
+
+    createOrbitalParticles(button) {
+        const rect = button.getBoundingClientRect();
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        
+        for (let i = 0; i < 6; i++) {
+            const particle = document.createElement('div');
+            particle.className = 'orbital-particle';
+            particle.style.cssText = `
+                position: absolute;
+                width: 4px;
+                height: 4px;
+                background: #ff0080;
+                border-radius: 50%;
+                box-shadow: 0 0 8px #ff0080;
+                left: ${centerX}px;
+                top: ${centerY}px;
+                animation: orbit${i} 2s linear infinite;
+                pointer-events: none;
+            `;
+            
+            button.appendChild(particle);
+        }
+    }
+
+    createEnergyPulse(button) {
+        const pulse = document.createElement('div');
+        pulse.style.cssText = `
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 0;
+            height: 0;
+            border: 2px solid #00c9ff;
+            border-radius: 50%;
+            animation: energyPulse 1s ease-out infinite;
+            pointer-events: none;
+        `;
+        
+        button.appendChild(pulse);
+        
+        setTimeout(() => {
+            pulse.remove();
+        }, 1000);
+    }
+
+    createRippleEffect(element) {
+        const ripple = document.createElement('div');
+        const rect = element.getBoundingClientRect();
+        
+        ripple.style.cssText = `
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 0;
+            height: 0;
+            background: rgba(0, 201, 255, 0.3);
+            border-radius: 50%;
+            animation: ripple 0.6s ease-out;
+            pointer-events: none;
+        `;
+        
+        element.appendChild(ripple);
+        
+        setTimeout(() => {
+            ripple.remove();
+        }, 600);
+    }
+
+    // ========================================
+    // FORM VALIDATION & SUBMISSION
+    // ========================================
+    
+    setupFormValidation() {
+        const form = document.getElementById('loginForm');
+        const inputs = form.querySelectorAll('.futuristic-input');
+        
+        inputs.forEach(input => {
+            input.addEventListener('blur', () => {
+                this.validateField(input);
+            });
+        });
+    }
+
+    validateField(input) {
+        const value = input.value.trim();
+        const container = input.closest('.input-container');
+        
+        // Remove existing validation indicators
+        this.clearValidationState(container);
+        
+        if (value.length === 0) {
+            this.showFieldError(container, 'This field is required');
+        } else if (input.type === 'password' && value.length < 6) {
+            this.showFieldError(container, 'Password must be at least 6 characters');
+        } else {
+            this.showFieldSuccess(container);
+        }
+    }
+
+    clearValidationState(container) {
+        container.classList.remove('field-error', 'field-success');
+        const errorMsg = container.querySelector('.error-message');
+        if (errorMsg) errorMsg.remove();
+    }
+
+    showFieldError(container, message) {
+        container.classList.add('field-error');
+        
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        errorDiv.textContent = message;
+        errorDiv.style.cssText = `
+            position: absolute;
+            bottom: -20px;
+            left: 0;
+            font-size: 0.8rem;
+            color: #ff0080;
+            animation: slideIn 0.3s ease-out;
+        `;
+        
+        container.appendChild(errorDiv);
+    }
+
+    showFieldSuccess(container) {
+        container.classList.add('field-success');
+    }
+
+    async handleLogin() {
+        if (this.isLoading) return;
+        
+        console.log('🚀 Starting login process...');
+        
+        const form = document.getElementById('loginForm');
+        const formData = new FormData(form);
+        
+        // Validate form
+        if (!this.validateForm()) {
+            console.log('❌ Form validation failed');
+            this.showMessage('Please fill in all required fields', 'error');
+            return;
+        }
+        
+        console.log('✅ Form validation passed');
+        this.showLoading(true);
+        
+        try {
+            // Simulate API call delay for dramatic effect
+            console.log('⏳ Adding dramatic delay...');
+            await this.delay(1500);
+            
+            // Convert FormData to URLSearchParams for proper content type
+            const params = new URLSearchParams();
+            for (let [key, value] of formData) {
+                params.append(key, value);
+            }
+            
+            console.log('📡 Sending login request...');
+            const response = await fetch(form.action, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: params
+            });
+            
+            console.log('📨 Response received:', response.status);
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log('📋 Response data:', result);
+                
+                if (result.success) {
+                    console.log('✅ Login successful, redirecting to:', result.redirect);
+                    this.showMessage('Login successful! Redirecting...', 'success');
+                    await this.delay(1000);
+                    window.location.href = result.redirect || '/dashboard';
+                } else {
+                    console.log('❌ Login failed:', result.message);
+                    this.showMessage(result.message || 'Login failed', 'error');
+                }
+            } else {
+                console.log('❌ HTTP error:', response.status);
+                try {
+                    const result = await response.json();
+                    this.showMessage(result.message || 'Invalid credentials. Please try again.', 'error');
+                } catch (e) {
+                    this.showMessage('Invalid credentials. Please try again.', 'error');
+                }
+            }
+        } catch (error) {
+            console.error('💥 Login error:', error);
+            this.showMessage('Connection error. Please try again.', 'error');
+        } finally {
+            this.showLoading(false);
+        }
+    }
+
+    validateForm() {
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value.trim();
+        
+        return username.length > 0 && password.length >= 6;
+    }
+
+    showLoading(show) {
+        const overlay = document.getElementById('loadingOverlay');
+        this.isLoading = show;
+        
+        if (show) {
+            overlay.classList.add('active');
+            this.startLoadingAnimation();
+        } else {
+            overlay.classList.remove('active');
+        }
+    }
+
+    startLoadingAnimation() {
+        const loadingText = document.querySelector('.loading-text');
+        const messages = [
+            'Authenticating...',
+            'Verifying credentials...',
+            'Accessing system...',
+            'Welcome!'
+        ];
+        
+        let messageIndex = 0;
+        const interval = setInterval(() => {
+            if (!this.isLoading) {
+                clearInterval(interval);
+                return;
+            }
+            
+            loadingText.textContent = messages[messageIndex];
+            messageIndex = (messageIndex + 1) % messages.length;
+        }, 500);
+    }
+
+    showMessage(text, type) {
+        const container = document.getElementById('messageContainer');
+        const textElement = container.querySelector('.message-text');
+        const iconElement = container.querySelector('.message-icon');
+        
+        textElement.textContent = text;
+        container.className = `message-container ${type}`;
+        
+        if (type === 'success') {
+            iconElement.className = 'fas fa-check-circle message-icon';
+        } else {
+            iconElement.className = 'fas fa-exclamation-triangle message-icon';
+        }
+        
+        container.classList.add('show');
+        
+        setTimeout(() => {
+            container.classList.remove('show');
+        }, 3000);
+    }
+
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // ========================================
+    // EVENT LISTENERS SETUP
+    // ========================================
+    
+    setupEventListeners() {
+        // Window resize handler
+        window.addEventListener('resize', () => {
+            this.handleResize();
+        });
+
+        // Performance optimization
+        window.addEventListener('blur', () => {
+            this.pauseAnimations();
+        });
+
+        window.addEventListener('focus', () => {
+            this.resumeAnimations();
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            this.handleKeyboardShortcuts(e);
+        });
+    }
+
+    handleResize() {
+        // Recreate particles on resize
+        this.particles.forEach(particle => {
+            particle.element.remove();
+        });
+        this.particles = [];
+        this.createParticles();
+    }
+
+    pauseAnimations() {
+        document.body.style.animationPlayState = 'paused';
+    }
+
+    resumeAnimations() {
+        document.body.style.animationPlayState = 'running';
+    }
+
+    handleKeyboardShortcuts(e) {
+        // Enter key to submit
+        if (e.key === 'Enter' && !e.shiftKey) {
+            const activeElement = document.activeElement;
+            if (activeElement.classList.contains('futuristic-input')) {
+                e.preventDefault();
+                this.handleLogin();
+            }
+        }
+        
+        // Escape to clear form
+        if (e.key === 'Escape') {
+            this.clearForm();
+        }
+    }
+
+    clearForm() {
+        const inputs = document.querySelectorAll('.futuristic-input');
+        inputs.forEach(input => {
+            input.value = '';
+            this.clearValidationState(input.closest('.input-container'));
+        });
+    }
+}
+
+// ========================================
+// CSS ANIMATIONS (Injected Dynamically)
+// ========================================
+
+function injectAdditionalStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes particleFloat {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(-50px) scale(0); opacity: 0; }
+        }
+        
+        @keyframes soundWave {
+            0% { transform: scaleX(0); opacity: 1; }
+            100% { transform: scaleX(1); opacity: 0; }
+        }
+        
+        @keyframes eyeBlink {
+            0%, 100% { transform: scaleY(1); }
+            50% { transform: scaleY(0.1); }
+        }
+        
+        @keyframes ripple {
+            0% { width: 0; height: 0; opacity: 1; }
+            100% { width: 100px; height: 100px; opacity: 0; }
+        }
+        
+        @keyframes energyPulse {
+            0% { width: 0; height: 0; opacity: 1; }
+            100% { width: 200px; height: 200px; opacity: 0; }
+        }
+        
+        @keyframes slideIn {
+            0% { transform: translateY(-10px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+        
+        @keyframes orbit0 { 0% { transform: rotate(0deg) translateX(30px) rotate(0deg); } 100% { transform: rotate(360deg) translateX(30px) rotate(-360deg); } }
+        @keyframes orbit1 { 0% { transform: rotate(60deg) translateX(30px) rotate(-60deg); } 100% { transform: rotate(420deg) translateX(30px) rotate(-420deg); } }
+        @keyframes orbit2 { 0% { transform: rotate(120deg) translateX(30px) rotate(-120deg); } 100% { transform: rotate(480deg) translateX(30px) rotate(-480deg); } }
+        @keyframes orbit3 { 0% { transform: rotate(180deg) translateX(30px) rotate(-180deg); } 100% { transform: rotate(540deg) translateX(30px) rotate(-540deg); } }
+        @keyframes orbit4 { 0% { transform: rotate(240deg) translateX(30px) rotate(-240deg); } 100% { transform: rotate(600deg) translateX(30px) rotate(-600deg); } }
+        @keyframes orbit5 { 0% { transform: rotate(300deg) translateX(30px) rotate(-300deg); } 100% { transform: rotate(660deg) translateX(30px) rotate(-660deg); } }
+        
+        .field-error .futuristic-input {
+            border-color: #ff0080;
+            box-shadow: 0 0 15px rgba(255, 0, 128, 0.3);
+        }
+        
+        .field-success .futuristic-input {
+            border-color: #00ff88;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+// ========================================
+// INITIALIZATION
+// ========================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Only initialize FuturisticLogin on login page
+    const loginCard = document.getElementById('loginCard');
+    if (loginCard) {
+        injectAdditionalStyles();
+        new FuturisticLogin();
+    }
+});
+
+// Export for potential module usage
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = FuturisticLogin;
 }
