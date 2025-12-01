@@ -59,8 +59,18 @@ uploads/*.bmp
 uploads/*.tiff
 data/face_embeddings.pkl
 data/*_backup_*.pkl
+data/attendance.csv
+data/students.csv
+data/training_metadata.json
 *.log
 assets/*.jpg
+
+# Backup files
+*.bak
+*.new
+*_old.html
+*_old.css
+*_old.js
 
 # Development and testing files
 test_*.py
