@@ -1270,6 +1270,18 @@ class FaceRecognitionApp {
                 },
                 body: JSON.stringify({ image: imageData })
             });
+
+            // Check if response is JSON
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                console.error('Face detection endpoint returned non-JSON response. User might not be logged in.');
+                return;
+            }
+
+            if (!response.ok) {
+                console.error('Face detection endpoint returned error:', response.status);
+                return;
+            }
             
             const result = await response.json();
             

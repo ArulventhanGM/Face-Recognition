@@ -1,21 +1,20 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, abort
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.utils import secure_filename
+from werkzeug.security import check_password_hash, generate_password_hash
 import os
 import cv2
 import numpy as np
 import base64
 import pandas as pd
-import time
 from datetime import datetime, timedelta
-
+from collections import defaultdict, Counter
 import logging
-from collections import Counter
 
 from config import Config
-from utils.data_manager import get_data_manager, get_face_recognizer, get_face_recognition_backend
+from utils.data_manager import get_data_manager, get_face_recognizer
 from utils.security import sanitize_filename, validate_student_id, validate_email
-from utils.asset_training_routes import asset_training_bp
+from utils.data_manager import get_face_recognition_backend
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -34,9 +33,6 @@ login_manager.login_message_category = 'error'
 # Create necessary directories
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['DATA_FOLDER'], exist_ok=True)
-
-# Register blueprints
-app.register_blueprint(asset_training_bp)
 
 # Simple User class for admin authentication
 class User(UserMixin):
@@ -84,7 +80,6 @@ def decode_base64_image(image_data):
         # Convert to numpy array
         nparr = np.frombuffer(image_bytes, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
         return image
     except Exception as e:
         logger.error(f"Error decoding base64 image: {e}")
@@ -92,6 +87,40 @@ def decode_base64_image(image_data):
 
 def get_dashboard_stats():
     """Get statistics for dashboard"""
+    data_manager = get_data_manager()
+    
+    students = data_manager.get_all_students()
+    all_attendance = data_manager.get_all_attendance()
+
+    # Convert all dates to datetime.date safely
+    cleaned_attendance = []
+    for att in all_attendance:
+        try:
+            # CSV already uses YYYY-MM-DD format → parse directly
+            att_date = datetime.strptime(att["date"], "%Y-%m-%d").date()
+            att["date"] = att_date
+            cleaned_attendance.append(att)
+        except:
+            # Skip corrupted rows
+            continue
+
+    today = datetime.now().date()
+    week_start = today - timedelta(days=7)
+    month_start = today.replace(day=1)
+
+    today_attendance = [a for a in cleaned_attendance if a["date"] == today]
+    week_attendance = [a for a in cleaned_attendance if a["date"] >= week_start]
+    month_attendance = [a for a in cleaned_attendance if a["date"] >= month_start]
+
+    return {
+        "total_students": len(students),
+        "total_attendance_today": len(today_attendance),
+        "total_attendance_week": len(week_attendance),
+        "total_attendance_month": len(month_attendance)
+    }
+
+"""def get_dashboard_stats():
+    "Get statistics for dashboard
     data_manager = get_data_manager()
     
     # Get all students and attendance
@@ -121,21 +150,8 @@ def get_dashboard_stats():
         'total_attendance_week': total_attendance_week,
         'total_attendance_month': total_attendance_month
     }
-
+"""
 # Routes
-@app.route('/test')
-def test_route():
-    """Simple test route that doesn't require authentication"""
-    return """
-    <h1>Flask App is Working!</h1>
-    <p>This test route confirms the Flask application is running properly.</p>
-    <ul>
-        <li><a href="/health">Health Check</a></li>
-        <li><a href="/login">Login Page</a></li>
-        <li><a href="/debug-dashboard">Debug Dashboard (requires login)</a></li>
-    </ul>
-    """
-
 @app.route('/health')
 def health_check():
     """Health check endpoint for monitoring and load balancing"""
@@ -180,7 +196,6 @@ def health_check():
             'timestamp': datetime.now().isoformat(),
             'error': str(e)
         }), 503
-
 @app.route('/')
 def index():
     """Redirect to dashboard or login"""
@@ -190,7 +205,7 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Admin login with futuristic interface"""
+    """Admin login"""
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
     
@@ -202,27 +217,12 @@ def login():
             password == app.config['ADMIN_PASSWORD']):
             user = User(username)
             login_user(user)
-            
-            # Return JSON response for AJAX requests
-            if request.headers.get('Content-Type') == 'application/x-www-form-urlencoded':
-                return jsonify({
-                    'success': True,
-                    'message': 'Login successful!',
-                    'redirect': url_for('dashboard')
-                }), 200
-            
             flash('Login successful!', 'success')
+            
             # Redirect to next page or dashboard
             next_page = request.args.get('next')
             return redirect(next_page) if next_page else redirect(url_for('dashboard'))
         else:
-            # Return JSON error for AJAX requests
-            if request.headers.get('Content-Type') == 'application/x-www-form-urlencoded':
-                return jsonify({
-                    'success': False,
-                    'message': 'Invalid username or password'
-                }), 401
-            
             flash('Invalid username or password', 'error')
     
     return render_template('login.html')
@@ -235,56 +235,22 @@ def logout():
     flash('You have been logged out', 'info')
     return redirect(url_for('login'))
 
-@app.route('/debug-dashboard')
-@login_required
-def debug_dashboard():
-    """Debug version of dashboard with error handling"""
-    try:
-        stats = get_dashboard_stats()
-        
-        # Get recent attendance (last 10 records)
-        data_manager = get_data_manager()
-        all_attendance = data_manager.get_all_attendance()
-        recent_attendance = sorted(all_attendance, 
-                                 key=lambda x: f"{x['date']} {x['time']}", 
-                                 reverse=True)[:10]
-        
-        return f"""
-        <h1>Debug Dashboard</h1>
-        <h2>Stats:</h2>
-        <ul>
-            <li>Total Students: {stats['total_students']}</li>
-            <li>Today's Attendance: {stats['total_attendance_today']}</li>
-            <li>This Week: {stats['total_attendance_week']}</li>
-            <li>This Month: {stats['total_attendance_month']}</li>
-        </ul>
-        <h2>Recent Attendance Count: {len(recent_attendance)}</h2>
-        <p>Debug successful! Template error likely.</p>
-        """
-        
-    except Exception as e:
-        return f"Dashboard error: {str(e)}"
-
 @app.route('/dashboard')
 @login_required
 def dashboard():
     """Admin dashboard"""
-    try:
-        stats = get_dashboard_stats()
-        
-        # Get recent attendance (last 10 records)
-        data_manager = get_data_manager()
-        all_attendance = data_manager.get_all_attendance()
-        recent_attendance = sorted(all_attendance, 
-                                 key=lambda x: f"{x['date']} {x['time']}", 
-                                 reverse=True)[:10]
-        
-        return render_template('dashboard.html', 
-                             stats=stats, 
-                             recent_attendance=recent_attendance)
-    except Exception as e:
-        logger.error(f"Dashboard error: {e}")
-        return f"Dashboard error: {str(e)}", 500
+    stats = get_dashboard_stats()
+    
+    # Get recent attendance (last 10 records)
+    data_manager = get_data_manager()
+    all_attendance = data_manager.get_all_attendance()
+    recent_attendance = sorted(all_attendance, 
+                             key=lambda x: f"{x['date']} {x['time']}", 
+                             reverse=True)[:10]
+    
+    return render_template('dashboard.html', 
+                         stats=stats, 
+                         recent_attendance=recent_attendance)
 
 @app.route('/diagnostics')
 @login_required
@@ -587,7 +553,7 @@ def recognize_photo():
             # Clean up uploaded file
             try:
                 os.remove(filepath)
-            except OSError:
+            except:
                 pass
 
     except Exception as e:
@@ -635,6 +601,39 @@ def process_photo():
         logger.error(f"Error processing camera photo: {e}")
         return jsonify({'success': False, 'message': 'Failed to process camera photo'})
 
+@app.route('/detect_faces', methods=['POST'])
+def detect_faces():
+    """Lightweight face detection endpoint for real-time UI updates"""
+    # Check if user is logged in, return JSON error if not
+    if not current_user.is_authenticated:
+        return jsonify({'success': False, 'message': 'Authentication required', 'error': 'not_logged_in'}), 401
+    
+    try:
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({'success': False, 'message': 'No image data'})
+
+        # Decode base64 image
+        image = decode_base64_image(data['image'])
+        if image is None:
+            return jsonify({'success': False, 'message': 'Invalid image data'})
+
+        # Get face recognizer for detection only
+        face_recognizer = get_face_recognizer()
+        
+        # Only detect faces, don't do recognition (faster)
+        face_locations = face_recognizer.detect_faces(image)
+        
+        return jsonify({
+            'success': True,
+            'faces_detected': len(face_locations),
+            'message': f'{len(face_locations)} face(s) detected' if len(face_locations) > 0 else 'No faces detected'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in face detection: {e}")
+        return jsonify({'success': False, 'message': 'Face detection failed', 'error': str(e)})
+
 @app.route('/recognize_realtime', methods=['POST'])
 @login_required
 def recognize_realtime():
@@ -661,28 +660,15 @@ def recognize_realtime():
         for embedding in face_embeddings:
             result = data_manager.recognize_face_from_embedding(embedding)
             if result:
-                # Ensure confidence is formatted properly
-                result['confidence'] = round(float(result['confidence']), 3)
                 recognized_faces.append(result)
-                logger.info(f"Real-time recognition: {result['name']} (confidence: {result['confidence']:.3f})")
         
-        # Sort by confidence (highest first) for better display
-        recognized_faces.sort(key=lambda x: x['confidence'], reverse=True)
-        
-        response = {
+        return jsonify({
             'success': True,
             'data': recognized_faces,
             'face_locations': face_locations,
             'faces_detected': len(face_locations),
             'faces_recognized': len(recognized_faces)
-        }
-        
-        # Log for debugging
-        if recognized_faces:
-            best_match = recognized_faces[0]
-            logger.info(f"Best match: {best_match['name']} ({best_match['confidence']:.1%})")
-        
-        return jsonify(response)
+        })
         
     except Exception as e:
         logger.error(f"Error in real-time recognition: {e}")
@@ -691,49 +677,21 @@ def recognize_realtime():
 @app.route('/mark_attendance', methods=['POST'])
 @login_required
 def mark_attendance():
-    """Mark attendance for a student with enhanced verification support"""
+    """Mark attendance for a student"""
     try:
         data = request.get_json()
         if not data or 'student_id' not in data:
             return jsonify({'success': False, 'message': 'Student ID required'})
-
+        
         student_id = data['student_id']
-        
-        # Get optional verification data
-        verified = data.get('verified', False)
-        similarity_score = data.get('similarity_score', 0)
-        verification_method = data.get('verification_method', 'camera')
-        
         data_manager = get_data_manager()
         
-        # Enhanced attendance marking with verification metadata
-        if verified and similarity_score > 0:
-            logger.info(f"Manual verification attendance: {student_id} (similarity: {similarity_score}%)")
-            success = data_manager.mark_attendance(
-                student_id,
-                method='manual_face_comparison',
-                similarity_score=similarity_score,
-                verified_by_user=True
-            )
-        else:
-            success = data_manager.mark_attendance(student_id, method='camera')
+        success = data_manager.mark_attendance(student_id, method='camera')
         
         if success:
-            # Get student info for response
-            student = data_manager.get_student(student_id)
-            student_name = student.get('name', student_id) if student else student_id
-            
-            response_message = f"Attendance marked for {student_name}"
-            if verified:
-                response_message += f" (Manual verification: {similarity_score:.1f}% match)"
-            
             return jsonify({
                 'success': True,
-                'message': response_message,
-                'student_id': student_id,
-                'student_name': student_name,
-                'verification_method': verification_method,
-                'similarity_score': similarity_score if verified else None
+                'message': f'Attendance marked for {student_id}'
             })
         else:
             return jsonify({
@@ -926,7 +884,7 @@ def student_photo(student_id):
                 return send_file(default_avatar_path, mimetype='image/svg+xml')
             else:
                 abort(404)
-        except Exception:
+        except:
             abort(404)
 
 @app.route('/attendance')
@@ -1038,83 +996,20 @@ def export_data(data_type):
     try:
         data_manager = get_data_manager()
         file_path = data_manager.export_data(data_type)
-
+        
         if file_path and os.path.exists(file_path):
-            return send_file(file_path,
-                           as_attachment=True,
+            return send_file(file_path, 
+                           as_attachment=True, 
                            download_name=f'{data_type}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
                            mimetype='text/csv')
         else:
             flash(f'No {data_type} data available for export', 'error')
-            return redirect(url_for('dashboard'))
+            
     except Exception as e:
         logger.error(f"Error exporting {data_type}: {e}")
         flash(f'Failed to export {data_type} data', 'error')
-        return redirect(url_for('dashboard'))
-
-@app.route('/settings')
-@login_required
-def settings():
-    """System settings page"""
-    return render_template('settings.html', config=app.config)
-
-
-
-@app.route('/update_security_settings', methods=['POST'])
-@login_required
-def update_security_settings():
-    """Update security settings"""
-    try:
-        current_password = request.form.get('current_password')
-        new_password = request.form.get('new_password')
-        confirm_password = request.form.get('confirm_password')
-        
-        # Validate current password
-        if current_password != app.config['ADMIN_PASSWORD']:
-            flash('Current password is incorrect', 'error')
-            return redirect(url_for('settings'))
-        
-        # Validate new password
-        if not new_password or len(new_password) < 8:
-            flash('New password must be at least 8 characters long', 'error')
-            return redirect(url_for('settings'))
-            
-        # Confirm passwords match
-        if new_password != confirm_password:
-            flash('New passwords do not match', 'error')
-            return redirect(url_for('settings'))
-        
-        # Update password in application config
-        app.config['ADMIN_PASSWORD'] = new_password
-        
-        # Update environment variable
-        with open('.env', 'r') as env_file:
-            lines = env_file.readlines()
-        
-        new_lines = []
-        password_found = False
-        
-        for line in lines:
-            if line.startswith('ADMIN_PASSWORD='):
-                new_lines.append(f'ADMIN_PASSWORD={new_password}\n')
-                password_found = True
-            else:
-                new_lines.append(line)
-                
-        # Add password if it doesn't exist
-        if not password_found:
-            new_lines.append(f'ADMIN_PASSWORD={new_password}\n')
-        
-        with open('.env', 'w') as env_file:
-            env_file.writelines(new_lines)
-            
-        flash('Password updated successfully!', 'success')
-        return redirect(url_for('settings'))
-        
-    except Exception as e:
-        logger.error(f"Error updating security settings: {e}")
-        flash(f'Error updating security settings: {str(e)}', 'error')
-        return redirect(url_for('settings'))
+    
+    return redirect(url_for('dashboard'))
 
 # Error handlers
 @app.errorhandler(404)
@@ -1186,7 +1081,7 @@ def train_existing_student():
         for temp_path in temp_image_paths:
             try:
                 os.remove(temp_path)
-            except OSError:
+            except:
                 pass
         
         # Add student information to result
@@ -1253,7 +1148,7 @@ def train_new_person():
         for temp_path in temp_image_paths:
             try:
                 os.remove(temp_path)
-            except OSError:
+            except:
                 pass
         
         # Add student information to result
@@ -1657,354 +1552,14 @@ def validate_training_images():
         logger.error(f"Error validating training images: {e}")
         return jsonify({'success': False, 'message': f'Validation failed: {str(e)}'})
 
-# Asset Training API Routes
-@app.route('/api/training-summary')
-def api_training_summary():
-    """Get training summary for asset training"""
-    try:
-        from utils.asset_face_training import get_asset_trainer
-        trainer = get_asset_trainer()
-        
-        summary = trainer.get_assets_summary()
-        
-        return jsonify({
-            'success': True,
-            'summary': summary
-        })
-    except Exception as e:
-        logger.error(f"Error getting training summary: {e}")
-        return jsonify({'success': False, 'message': str(e)})
-
-@app.route('/api/start-advanced-training', methods=['POST'])
-@login_required
-def api_start_advanced_training():
-    """Start advanced asset-based training"""
-    try:
-        data = request.get_json()
-        
-        from utils.asset_face_training import get_asset_trainer
-        trainer = get_asset_trainer()
-        
-        # Extract parameters
-        max_images_per_emotion = data.get('max_real_images', 1000)
-        emotions_to_include = data.get('emotions_to_include')
-        
-        # Start training
-        result = trainer.train_from_assets(
-            max_images_per_emotion=max_images_per_emotion,
-            emotions_to_include=emotions_to_include
-        )
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error starting advanced training: {e}")
-        return jsonify({'success': False, 'message': str(e)})
-
-@app.route('/api/training-status')
-def api_training_status():
-    """Get current training status"""
-    try:
-        from utils.asset_face_training import get_asset_trainer
-        trainer = get_asset_trainer()
-        
-        status = trainer.get_training_status()
-        status['is_training'] = False  # For now, synchronous training
-        status['progress'] = 100 if status.get('model_trained') else 0
-        status['current_step'] = 'Ready' if not status.get('model_trained') else 'Training Complete'
-        
-        return jsonify(status)
-        
-    except Exception as e:
-        logger.error(f"Error getting training status: {e}")
-        return jsonify({'success': False, 'message': str(e)})
-
-@app.route('/api/load-model', methods=['POST'])
-@login_required
-def api_load_model():
-    """Load a previously trained model"""
-    try:
-        from utils.asset_face_training import get_asset_trainer
-        trainer = get_asset_trainer()
-        
-        success = trainer.load_model()
-        
-        if success:
-            return jsonify({'success': True, 'message': 'Model loaded successfully'})
-        else:
-            return jsonify({'success': False, 'message': 'No saved model found'})
-            
-    except Exception as e:
-        logger.error(f"Error loading model: {e}")
-        return jsonify({'success': False, 'message': str(e)})
-
-@app.route('/api/reset-training', methods=['POST'])
-@login_required
-def api_reset_training():
-    """Reset training status"""
-    try:
-        # Just return success for now - can implement actual reset logic later
-        return jsonify({'success': True, 'message': 'Training status reset'})
-        
-    except Exception as e:
-        logger.error(f"Error resetting training: {e}")
-        return jsonify({'success': False, 'message': str(e)})
-
-@app.route('/api/test-model', methods=['POST'])
-@login_required
-def api_test_model():
-    """Test model performance"""
-    try:
-        from utils.asset_face_training import get_asset_trainer
-        trainer = get_asset_trainer()
-        
-        if trainer.trained_model is None:
-            return jsonify({'success': False, 'error': 'No trained model available'})
-        
-        # Simple test results
-        test_results = {
-            'total_images': 50,
-            'successful_predictions': 45,
-            'failed_predictions': 5,
-            'average_confidence': trainer.trained_model.get('accuracy', 0.85)
-        }
-        
-        return jsonify({'success': True, 'test_results': test_results})
-        
-    except Exception as e:
-        logger.error(f"Error testing model: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/predict-test', methods=['POST'])
-@login_required
-def api_predict_test():
-    """Predict emotion for test image"""
-    try:
-        if 'image' not in request.files:
-            return jsonify({'success': False, 'error': 'No image provided'})
-        
-        file = request.files['image']
-        if file.filename == '':
-            return jsonify({'success': False, 'error': 'No image selected'})
-        
-        # Save temporary file
-        import tempfile
-        temp_dir = tempfile.gettempdir()
-        temp_path = os.path.join(temp_dir, f"test_image_{int(time.time())}.jpg")
-        file.save(temp_path)
-        
-        try:
-            from utils.asset_face_training import get_asset_trainer
-            trainer = get_asset_trainer()
-            
-            result = trainer.predict_emotion(temp_path)
-            
-            if result['success']:
-                prediction = {
-                    'label': result['emotion'],
-                    'confidence': result['confidence']
-                }
-                return jsonify({'success': True, 'prediction': prediction})
-            else:
-                return jsonify({'success': False, 'error': result['error']})
-                
-        finally:
-            # Clean up temp file
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-        
-    except Exception as e:
-        logger.error(f"Error predicting test image: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/recognize_enhanced_realtime', methods=['POST'])
-@login_required
-def api_recognize_enhanced_realtime():
-    """Enhanced real-time face recognition with cropping and comparison"""
-    try:
-        data = request.get_json()
-        if not data or 'image' not in data:
-            return jsonify({'success': False, 'message': 'No image data'})
-
-        # Decode base64 image
-        image = decode_base64_image(data['image'])
-        if image is None:
-            return jsonify({'success': False, 'message': 'Invalid image data'})
-
-        # Get enhanced face processor
-        from utils.realtime_face_processor import get_realtime_processor
-        processor = get_realtime_processor()
-        
-        # Process frame with enhanced detection and cropping
-        result = processor.process_realtime_frame(image)
-        
-        if not result['success']:
-            return jsonify(result)
-        
-        # Convert face crops to base64 for web display
-        enhanced_faces = []
-        for face in result['faces']:
-            if face.get('crop_path'):
-                try:
-                    # Read cropped face image
-                    face_image = cv2.imread(face['crop_path'])
-                    if face_image is not None:
-                        # Convert to base64
-                        _, buffer = cv2.imencode('.jpg', face_image)
-                        face_base64 = base64.b64encode(buffer).decode('utf-8')
-                        face['crop_base64'] = f"data:image/jpeg;base64,{face_base64}"
-                        
-                    enhanced_faces.append(face)
-                except Exception as e:
-                    logger.warning(f"Error processing face crop: {e}")
-                    continue
-        
-        return jsonify({
-            'success': True,
-            'faces': enhanced_faces,
-            'total_faces': len(enhanced_faces),
-            'frame_processed': True
-        })
-        
-    except Exception as e:
-        logger.error(f"Error in enhanced real-time recognition: {e}")
-        return jsonify({'success': False, 'message': 'Recognition failed'})
-
-@app.route('/api/get_face_comparisons', methods=['POST'])
-@login_required
-def api_get_face_comparisons():
-    """Get face comparison results for a cropped face"""
-    try:
-        data = request.get_json()
-        if not data or 'crop_path' not in data:
-            return jsonify({'success': False, 'message': 'No crop path provided'})
-
-        crop_path = data['crop_path']
-        
-        # Get face comparison system
-        from utils.face_comparison_system import get_face_comparison_system
-        data_manager = get_data_manager()
-        comparison_system = get_face_comparison_system(data_manager)
-        
-        # Process the face comparison
-        comparison_result = comparison_system.process_realtime_recognition(crop_path)
-        
-        return jsonify(comparison_result)
-        
-    except Exception as e:
-        logger.error(f"Error getting face comparisons: {e}")
-        return jsonify({'success': False, 'message': 'Comparison failed'})
-
-@app.route('/api/verify_face_match', methods=['POST'])
-@login_required
-def api_verify_face_match():
-    """Verify and confirm a face match for attendance"""
-    try:
-        data = request.get_json()
-        required_fields = ['student_id', 'similarity_score', 'verified']
-        
-        if not all(field in data for field in required_fields):
-            return jsonify({'success': False, 'message': 'Missing required fields'})
-        
-        student_id = data['student_id']
-        similarity_score = data['similarity_score']
-        verified = data['verified']
-        
-        if verified and similarity_score >= 50:  # Minimum threshold for manual verification
-            # Mark attendance with verification metadata
-            data_manager = get_data_manager()
-            result = data_manager.mark_attendance(
-                student_id, 
-                verification_method='manual_face_comparison',
-                similarity_score=similarity_score,
-                verified_by_user=True
-            )
-            
-            if result['success']:
-                logger.info(f"Manual face verification successful: {student_id} (similarity: {similarity_score}%)")
-                return jsonify({
-                    'success': True, 
-                    'message': f'Attendance marked for {student_id}',
-                    'student_id': student_id,
-                    'similarity_score': similarity_score
-                })
-            else:
-                return jsonify({'success': False, 'message': result.get('message', 'Failed to mark attendance')})
-        else:
-            return jsonify({'success': False, 'message': 'Verification failed or low confidence'})
-            
-    except Exception as e:
-        logger.error(f"Error verifying face match: {e}")
-        return jsonify({'success': False, 'message': 'Verification failed'})
-
-@app.route('/api/face_detection_stats')
-@login_required
-def api_face_detection_stats():
-    """Get face detection statistics"""
-    try:
-        from utils.realtime_face_processor import get_realtime_processor
-        processor = get_realtime_processor()
-        
-        stats = {
-            'total_crops_processed': processor.crop_counter,
-            'temp_directory': processor.temp_dir,
-            'detection_parameters': {
-                'min_face_size': processor.min_face_size,
-                'max_face_size': processor.max_face_size,
-                'scale_factor': processor.scale_factor,
-                'min_neighbors': processor.min_neighbors
-            }
-        }
-        
-        return jsonify({'success': True, 'stats': stats})
-        
-    except Exception as e:
-        logger.error(f"Error getting face detection stats: {e}")
-        return jsonify({'success': False, 'message': 'Failed to get stats'})
-
-
-
-@app.route('/errorhandler/413')
+@app.errorhandler(413)
 def file_too_large(error):
     flash('File too large. Maximum size is 16MB.', 'error')
     return redirect(request.url)
 
 
 
-@app.route('/detect_faces', methods=['POST'])
-@login_required
-def detect_faces():
-    """Lightweight face detection endpoint for automatic UI updates
-    This endpoint only detects faces without performing full recognition,
-    making it faster and more efficient for continuous monitoring."""
-    try:
-        data = request.get_json()
-        if not data or 'image' not in data:
-            return jsonify({'success': False, 'message': 'No image data'})
-
-        # Decode base64 image
-        image = decode_base64_image(data['image'])
-        if image is None:
-            return jsonify({'success': False, 'message': 'Invalid image data'})
-
-        # Get face recognizer for detection only
-        face_recognizer = get_face_recognizer()
-        
-        # Only perform face detection without recognition
-        face_locations = face_recognizer.detect_faces(image)
-        
-        response = {
-            'success': True,
-            'faces_detected': len(face_locations),
-            'face_locations': face_locations
-        }
-        
-        return jsonify(response)
-        
-    except Exception as e:
-        logger.error(f"Error in face detection: {e}")
-        return jsonify({'success': False, 'message': f'Error: {str(e)}'})
-
-
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    debug_mode = os.environ.get('DEBUG', 'False').lower() == 'true'
+    app.run(debug=debug_mode, host='0.0.0.0', port=port)

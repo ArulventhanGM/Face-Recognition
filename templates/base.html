@@ -42,10 +42,10 @@
                     <li><a href="{{ url_for('dashboard') }}" class="glass-nav-link"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
                     <li><a href="{{ url_for('students') }}" class="glass-nav-link"><i class="fas fa-users"></i> Students</a></li>
                     <li><a href="{{ url_for('face_training') }}" class="glass-nav-link"><i class="fas fa-brain"></i> Face Training</a></li>
-                    <li><a href="{{ url_for('asset_training.index') }}" class="glass-nav-link"><i class="fas fa-database"></i> Asset Training</a></li>
+                    {# <li><a href="{{ url_for('asset_training.index') }}" class="glass-nav-link"><i class="fas fa-database"></i> Asset Training</a></li> #}
                     <li><a href="{{ url_for('attendance') }}" class="glass-nav-link"><i class="fas fa-calendar-check"></i> Attendance</a></li>
                     <li><a href="{{ url_for('recognition') }}" class="glass-nav-link"><i class="fas fa-camera"></i> Recognition</a></li>
-                    <li><a href="{{ url_for('settings') }}" class="glass-nav-link"><i class="fas fa-cog"></i> Settings</a></li>
+                    {# <li><a href="{{ url_for('settings') }}" class="glass-nav-link"><i class="fas fa-cog"></i> Settings</a></li> #}
                 </ul>
             </nav>
             <form method="POST" action="{{ url_for('logout') }}" style="margin: 0;">
